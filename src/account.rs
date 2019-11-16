@@ -4,7 +4,7 @@ pub enum AccountError {
     AssetNotFound,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Account {
     id: u128,
     name: String,
