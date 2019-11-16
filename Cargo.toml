@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 chrono = "0.4.9"
+ordered-float = "1.0.2"
 
