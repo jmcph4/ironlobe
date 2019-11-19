@@ -15,7 +15,7 @@ pub enum OrderType {
     Ask
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Order {
     id: u128,
     owner: account::Account,
