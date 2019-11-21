@@ -11,13 +11,15 @@ pub enum BookError {
     NoTrades,
 }
 
+type Side = BTreeMap<OrderedFloat<f64>, VecDeque<order::Order>>;
+
 #[derive(Debug)]
 pub struct Book {
     id: u128,
     name: String,
     ticker: String,
-    bids: BTreeMap<OrderedFloat<f64>, VecDeque<order::Order>>,
-    asks: BTreeMap<OrderedFloat<f64>, VecDeque<order::Order>>,
+    bids: Side,
+    asks: Side,
     ltp: f64,
     has_traded: bool
 }
@@ -84,11 +86,32 @@ impl Book {
         unimplemented!();
     }
 
-    fn add_order(&self, order: order::Order) {
-        unimplemented!();
+    fn add_order(side: &mut Side, order: order::Order) -> Result<Side, BookError> {
+        match order.get_order_type() {
+            order::OrderType::Bid => {
+                match side.get_mut(&OrderedFloat::from(order.get_price())) {
+                    Some(level) => level.push_back(order),
+                    None => {
+                        side.insert(OrderedFloat::from(order.get_price()), VecDeque::new());
+                        return Book::add_order(side, order);
+                    }
+                };
+            },
+            order::OrderType::Ask => {
+                match side.get_mut(&OrderedFloat::from(order.get_price())) {
+                    Some(level) => level.push_back(order),
+                    None => {
+                        side.insert(OrderedFloat::from(order.get_price()), VecDeque::new());
+                        return Book::add_order(side, order);
+                    }
+                };
+            }
+        };
+
+        Ok(side.clone())
     }
 
-    fn execute_order(&self, order_id: u128) {
+    fn execute_order(&self, order: &mut order::Order) {
         unimplemented!();
     }
 
