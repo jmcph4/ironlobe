@@ -76,11 +76,11 @@ impl Book {
         }
     }
 
-    pub fn submit(&self, order: order::Order) -> Result<(), BookError> {
+    pub fn submit(&mut self, order: order::Order) -> Result<(), BookError> {
         unimplemented!();
     }
 
-    pub fn cancel(&self, order_id: u128) -> Result<(), BookError> {
+    pub fn cancel(&mut self, order_id: u128) -> Result<(), BookError> {
         unimplemented!();
     }
 
