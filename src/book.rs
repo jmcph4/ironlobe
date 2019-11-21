@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::convert::TryInto;
 extern crate ordered_float;
 
@@ -16,8 +16,8 @@ pub struct Book {
     id: u128,
     name: String,
     ticker: String,
-    bids: BTreeMap<OrderedFloat<f64>, order::Order>,
-    asks: BTreeMap<OrderedFloat<f64>, order::Order>,
+    bids: BTreeMap<OrderedFloat<f64>, VecDeque<order::Order>>,
+    asks: BTreeMap<OrderedFloat<f64>, VecDeque<order::Order>>,
     ltp: f64,
     has_traded: bool
 }
