@@ -120,3 +120,19 @@ impl Book {
     }
 }
 
+impl PartialEq for Book {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id &&
+            self.name == other.name &&
+            self.ticker == other.ticker &&
+            self.ltp == other.ltp &&
+            self.has_traded == other.has_traded &&
+            self.bids.iter().len() == other.bids.iter().len() &&
+            self.asks.iter().len() == other.asks.iter().len() &&
+            Vec::new().extend(self.bids.iter().map(|x| x)) == 
+                Vec::new().extend(other.bids.iter().map(|x| x)) &&
+            Vec::new().extend(self.asks.iter().map(|x| x)) == 
+                Vec::new().extend(other.asks.iter().map(|x| x))
+    }
+}
+
