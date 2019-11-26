@@ -23,12 +23,24 @@ impl Account {
         self.id
     }
 
+    pub fn set_id(&mut self, id: u128) {
+        self.id = id;
+    }
+
     pub fn get_name(&self) -> String {
         self.name.clone()
     }
 
+    pub fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
+
     pub fn get_balance(&self) -> f64 {
         self.balance
+    }
+
+    pub fn set_balance(&mut self, balance: f64) {
+        self.balance = balance
     }
 
     pub fn holds(&self, ticker: String) -> bool {
@@ -41,6 +53,18 @@ impl Account {
         } else {
             Err(AccountError::AssetNotFound)
         }
+    }
+
+    pub fn set_holding(&mut self, ticker: String, quantity: u128) -> 
+        Result<(), AccountError> {
+        if self.holds(ticker.clone()) {
+            self.holdings.remove(&ticker);
+            self.holdings.insert(ticker, quantity);
+        } else {
+            return Err(AccountError::AssetNotFound);
+        }
+
+        Ok(())
     }
 }
 
