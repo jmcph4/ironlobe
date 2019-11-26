@@ -6,6 +6,7 @@ use ordered_float::OrderedFloat;
 
 use crate::order;
 
+#[derive(Debug)]
 pub enum BookError {
     SideEmpty,
     NoTrades,
@@ -133,6 +134,32 @@ impl PartialEq for Book {
                 Vec::new().extend(other.bids.iter().map(|x| x)) &&
             Vec::new().extend(self.asks.iter().map(|x| x)) == 
                 Vec::new().extend(other.asks.iter().map(|x| x))
+    }
+}
+
+#[cfg(test)]
+mod tests { 
+    use super::*;
+
+    #[test]
+    fn test_new() -> Result<(), BookError> {
+        let id: u128 = 1;
+        let name: String = "Book".to_string();
+        let ticker: String = "BOOK".to_string();
+
+        let actual_book: Book = Book::new(id, name.clone(), ticker.clone());
+        let expected_book: Book = Book{
+            id: id,
+            name: name.clone(),
+            ticker: ticker.clone(),
+            bids: Side::new(),
+            asks: Side::new(),
+            ltp: 0.00,
+            has_traded: false
+        };
+
+        assert_eq!(actual_book, expected_book);
+        Ok(())
     }
 }
 
