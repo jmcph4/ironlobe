@@ -140,6 +140,9 @@ impl PartialEq for Book {
 #[cfg(test)]
 mod tests { 
     use super::*;
+    use super::order::{Order, OrderType};
+    use crate::account::Account;
+    use std::collections::HashMap;
 
     #[test]
     fn test_new() -> Result<(), BookError> {
@@ -158,6 +161,47 @@ mod tests {
             has_traded: false
         };
 
+        assert_eq!(actual_book, expected_book);
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_order_bid() -> Result<(), BookError> {
+        let order_id: u128 = 1;
+        let trader: Account = Account::new(1, "Account".to_string(), 10000.00, HashMap::new());
+        let ticker: String = "BOOK".to_string();
+        let order_type: OrderType = OrderType::Bid;
+        let order_price: f64 = 12.00;
+        let order_quantity: u128 = 300;
+
+
+        let order: Order = Order::new(order_id,
+                                      trader,
+                                      ticker.clone(),
+                                      order_type,
+                                      order_price,
+                                      order_quantity);
+
+        let book_id: u128 = 1;
+        let book_name: String = "Book".to_string();
+        let mut actual_book: Book = Book::new(book_id,
+                                          book_name.clone(),
+                                          ticker.clone());
+        
+        Book::add_order(&mut actual_book.bids, order.clone())?;
+
+        let mut expected_book: Book = Book {
+            id: book_id,
+            name: book_name.clone(),
+            ticker: ticker.clone(),
+            bids: Side::new(),
+            asks: Side::new(),
+            ltp: 0.00,
+            has_traded: false
+        };
+
+        expected_book.bids.insert(OrderedFloat::from(order_price), VecDeque::from(vec![order]));
+        
         assert_eq!(actual_book, expected_book);
         Ok(())
     }
