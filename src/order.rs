@@ -8,6 +8,8 @@ pub enum OrderError {
     OrderStillActive
 }
 
+pub type OrderId = u128;
+
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum OrderType {
