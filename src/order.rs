@@ -8,14 +8,14 @@ pub enum OrderError {
     OrderStillActive
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum OrderType {
     Bid,
     Ask
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Order {
     id: u128,
     owner: account::Account,
