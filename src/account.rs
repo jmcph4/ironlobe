@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub enum AccountError {
     AssetNotFound,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Account {
     id: u128,
     name: String,
