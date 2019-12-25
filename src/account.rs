@@ -44,6 +44,14 @@ impl Account {
         self.balance = balance
     }
 
+    pub fn add_balance(&mut self, balance: f64) {
+        self.balance += balance
+    }
+
+    pub fn take_balance(&mut self, balance: f64) {
+        self.balance -= balance;
+    }
+
     pub fn holds(&self, ticker: String) -> bool {
         self.holdings.contains_key(&ticker)
     }
