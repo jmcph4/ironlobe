@@ -75,5 +75,25 @@ impl Account {
 
         Ok(())
     }
+
+    pub fn add_holding(&mut self, ticker: String, quantity: u128) -> Result<(), AccountError> {
+        if self.holds(ticker.clone()) {
+            self.set_holding(ticker.clone(), self.get_holding(ticker.clone())? + quantity)?;
+        } else {
+            return Err(AccountError::AssetNotFound);
+        }
+
+        Ok(())
+    }
+
+    pub fn take_holding(&mut self, ticker: String, quantity: u128) -> Result<(), AccountError> {
+        if self.holds(ticker.clone()) {
+            self.set_holding(ticker.clone(), self.get_holding(ticker.clone())? - quantity)?;
+        } else {
+            return Err(AccountError::AssetNotFound);
+        }
+
+        Ok(())
+    }
 }
 
