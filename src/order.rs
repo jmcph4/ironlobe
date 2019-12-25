@@ -57,6 +57,10 @@ impl Order {
         self.owner.clone()
     }
 
+    pub fn get_owner_mut(&mut self) -> &mut account::Account {
+        &mut self.owner
+    }
+
     pub fn get_ticker(&self) -> String {
         self.ticker.clone()
     }
