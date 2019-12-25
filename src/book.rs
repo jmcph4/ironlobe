@@ -21,8 +21,8 @@ pub struct Book<'a> {
     name: String,
     ticker: String,
     orders: HashMap<OrderId, Order>,
-    bids: BTreeMap<PriceKey, VecDeque<&'a Order>>,
-    asks: BTreeMap<PriceKey, VecDeque<&'a Order>>,
+    bids: BTreeMap<PriceKey, VecDeque<&'a mut Order>>,
+    asks: BTreeMap<PriceKey, VecDeque<&'a mut Order>>,
     ltp: f64,
     has_traded: bool
 }
@@ -61,7 +61,8 @@ impl Book<'_> {
         }
     }
 
-    pub fn get_order_mut(&mut self, id: OrderId) -> Result<&mut Order, BookError> {
+    pub fn get_order_mut(&mut self, id: OrderId) ->
+        Result<&mut Order, BookError> {
         match self.orders.get_mut(&id) {
             Some(order) => Ok(order),
             None => Err(BookError::OrderNotFound)
@@ -76,12 +77,30 @@ impl Book<'_> {
         }
     }
 
-    pub fn submit(&mut self, order: Order) -> Result<(), BookError> {
+    #[allow(unused_mut)]
+    pub fn submit(&mut self, mut order: Order) -> Result<(), BookError> {
         unimplemented!();
     }
 
     pub fn cancel(&mut self, id: OrderId) -> Result<(), BookError> {
         unimplemented!();
+    }
+}
+
+
+impl PartialEq for Book<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id &&
+            self.name == other.name &&
+            self.ticker == other.ticker &&
+            self.ltp == other.ltp &&
+            self.has_traded == other.has_traded &&
+            self.bids.iter().len() == other.bids.iter().len() &&
+            self.asks.iter().len() == other.asks.iter().len() &&
+            Vec::new().extend(self.bids.iter().map(|x| x)) == 
+                Vec::new().extend(other.bids.iter().map(|x| x)) &&
+            Vec::new().extend(self.asks.iter().map(|x| x)) == 
+                Vec::new().extend(other.asks.iter().map(|x| x))
     }
 }
 
