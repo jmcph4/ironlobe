@@ -104,3 +104,32 @@ impl PartialEq for Book<'_> {
     }
 }
 
+
+#[cfg(test)]
+mod tests { 
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_new() -> Result<(), BookError> {
+        let id: u128 = 1;
+        let name: String = "Book".to_string();
+        let ticker: String = "BOOK".to_string();
+
+        let actual_book: Book = Book::new(id, name.clone(), ticker.clone());
+        let expected_book: Book = Book{
+            id: id,
+            name: name.clone(),
+            ticker: ticker.clone(),
+            orders: HashMap::new(),
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
+            ltp: 0.00,
+            has_traded: false
+        };
+
+        assert_eq!(actual_book, expected_book);
+        Ok(())
+    }
+}
+
