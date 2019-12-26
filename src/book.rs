@@ -1,4 +1,5 @@
 use std::collections::{HashMap, BTreeMap, VecDeque};
+use std::iter::FromIterator;
 extern crate ordered_float;
 
 use ordered_float::OrderedFloat;
@@ -79,7 +80,172 @@ impl Book<'_> {
 
     #[allow(unused_mut)]
     pub fn submit(&mut self, mut order: Order) -> Result<(), BookError> {
-        unimplemented!();
+        let order_id: OrderId = order.get_id();
+        let order_type: OrderType = order.get_order_type();
+        let order_price: f64 = order.get_price();
+        let order_quantity: u128 = order.get_quantity();
+        let order_ticker: String = order.get_ticker();
+
+        let &mut Book {
+            ref mut id,
+            ref mut name,
+            ref mut ticker,
+            ref mut orders,
+            ref mut bids,
+            ref mut asks,
+            .. } = self;
+       
+        let mut matched: bool = false;
+
+        match order_type {
+            OrderType::Bid => {
+                for (level_price, level_orders) in asks.iter_mut() {
+                    if level_price <= &OrderedFloat::from(order_price) {
+                        for counter_order in level_orders.iter_mut() {
+                            let counter_price: f64 = counter_order.get_price();
+                            let counter_quantity: u128 =
+                                counter_order.get_quantity();
+
+                            if counter_quantity < order_quantity {
+                                // execute entire counterparty order
+                                counter_order.get_owner_mut().add_balance(
+                                    counter_price * counter_quantity as f64);
+                                counter_order.get_owner_mut().take_holding(
+                                    order_ticker.clone(),
+                                    counter_quantity).unwrap();
+                                orders.remove(&counter_order.get_id());
+
+                                // partially execute local order
+                                order.get_owner_mut().take_balance(
+                                    counter_price * counter_quantity as f64);
+                                order.get_owner_mut().add_holding(
+                                    order_ticker.clone(),
+                                    counter_quantity).unwrap();
+                            } else if counter_quantity == order_quantity {
+                                // execute entire counterparty order
+                                counter_order.get_owner_mut().add_balance(
+                                    counter_price * counter_quantity as f64);
+                                order.get_owner_mut().add_holding(
+                                    order_ticker.clone(),
+                                    order_quantity).unwrap();
+                                orders.remove(&counter_order.get_id());
+
+                                // execute entire local order 
+                                order.get_owner_mut().take_balance(
+                                    counter_price * counter_quantity as f64);
+                                order.get_owner_mut().add_holding(
+                                    order_ticker.clone(),
+                                    order_quantity).unwrap();
+                                matched = true;
+                                break;
+                            } else if counter_quantity > order_quantity {
+                                // partially execute counterparty order
+                                counter_order.get_owner_mut().add_balance(
+                                    counter_price * counter_quantity as f64);
+                                counter_order.get_owner_mut().take_holding(
+                                    order_ticker.clone(),
+                                    order_quantity).unwrap();
+
+                                // execute entire local order
+                                order.get_owner_mut().take_balance(
+                                    counter_price * counter_quantity as f64);
+                                order.get_owner_mut().add_holding(
+                                    order_ticker.clone(),
+                                    order_quantity).unwrap();
+                                matched = true;
+                                break;
+                            }
+                        }
+
+                        if matched {
+                            break;
+                        }
+                    }
+                }
+                
+                if !matched {
+                    orders.insert(order_id, order);
+                    
+                    if !bids.contains_key(&OrderedFloat::from(order_price)) {
+                        bids.insert(OrderedFloat::from(order_price),
+                        VecDeque::from_iter(vec![]));
+                    }   
+                }
+            },
+            OrderType::Ask => { 
+                for (level_price, level_orders) in bids.iter_mut() {
+                    if level_price <= &OrderedFloat::from(order_price) {
+                        for counter_order in level_orders.iter_mut() {
+                            let counter_price: f64 = counter_order.get_price();
+                            let counter_quantity: u128 =
+                                counter_order.get_quantity();
+
+                            if counter_quantity < order_quantity {
+                                // execute entire counterparty order
+                                counter_order.get_owner_mut().take_balance(
+                                    counter_price * counter_quantity as f64);
+                                counter_order.get_owner_mut().add_holding(
+                                    order_ticker.clone(),
+                                    counter_quantity).unwrap();
+                                orders.remove(&counter_order.get_id());
+
+                                // partially execute local order
+                                order.get_owner_mut().add_balance(
+                                    counter_price * counter_quantity as f64);
+                                order.get_owner_mut().take_holding(
+                                    order_ticker.clone(),
+                                    counter_quantity).unwrap();
+                            } else if counter_quantity == order_quantity {
+                                // execute entire counterparty order
+                                counter_order.get_owner_mut().take_balance(
+                                    counter_price * counter_quantity as f64);
+                                order.get_owner_mut().take_holding(
+                                    order_ticker.clone(),
+                                    order_quantity).unwrap();
+                                orders.remove(&counter_order.get_id());
+
+                                // execute entire local order 
+                                order.get_owner_mut().add_balance(
+                                    counter_price * counter_quantity as f64);
+                                order.get_owner_mut().take_holding(
+                                    order_ticker.clone(),
+                                    order_quantity).unwrap();
+                                matched = true;
+                                break;
+                            } else if counter_quantity > order_quantity {
+                                // partially execute counterparty order
+                                counter_order.get_owner_mut().take_balance(
+                                    counter_price * counter_quantity as f64);
+                                counter_order.get_owner_mut().add_holding(
+                                    order_ticker.clone(),
+                                    order_quantity).unwrap();
+
+                                // execute entire local order
+                                order.get_owner_mut().add_balance(
+                                    counter_price * counter_quantity as f64);
+                                order.get_owner_mut().take_holding(
+                                    order_ticker.clone(),
+                                    order_quantity).unwrap();
+                                matched = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+
+                if !matched {
+                    orders.insert(order_id, order);
+                    
+                    if !asks.contains_key(&OrderedFloat::from(order_price)) {
+                        asks.insert(OrderedFloat::from(order_price),
+                        VecDeque::from_iter(vec![]));
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn cancel(&mut self, id: OrderId) -> Result<(), BookError> {
@@ -109,7 +275,6 @@ impl PartialEq for Book<'_> {
 mod tests { 
     use super::*;
     use std::collections::HashMap;
-    use std::iter::FromIterator;
     use crate::account::*;
 
     #[test]
