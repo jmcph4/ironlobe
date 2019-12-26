@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+pub type AccountId = u128;
+
 #[derive(Debug)]
 pub enum AccountError {
     AssetNotFound,
@@ -7,7 +9,7 @@ pub enum AccountError {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Account {
-    id: u128,
+    id: AccountId,
     name: String,
     balance: f64,
     holdings: HashMap<String, u128>
@@ -15,16 +17,16 @@ pub struct Account {
 
 #[allow(dead_code)]
 impl Account {
-    pub fn new(id: u128, name: String, balance: f64,
+    pub fn new(id: AccountId, name: String, balance: f64,
                holdings: HashMap<String, u128>) -> Account {
         Account {id, name, balance, holdings}
     }
 
-    pub fn get_id(&self) -> u128 {
+    pub fn get_id(&self) -> AccountId {
         self.id
     }
 
-    pub fn set_id(&mut self, id: u128) {
+    pub fn set_id(&mut self, id: AccountId) {
         self.id = id;
     }
 
