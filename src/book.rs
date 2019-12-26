@@ -78,7 +78,6 @@ impl Book<'_> {
         }
     }
 
-    #[allow(unused_mut)]
     pub fn submit(&mut self, mut order: Order) -> Result<(), BookError> {
         let order_id: OrderId = order.get_id();
         let order_type: OrderType = order.get_order_type();
@@ -95,46 +94,10 @@ impl Book<'_> {
             ref mut asks,
             .. } = self;
        
-        let mut matched: bool = false;
-
         match order_type {
             OrderType::Bid => {
-                for (level_price, level_orders) in asks.iter_mut() {
-                    if level_price <= &OrderedFloat::from(order_price) {
-                        for counter_order in level_orders.iter_mut() {
-                            let counter_price: f64 = counter_order.get_price();
-                            let counter_quantity: u128 =
-                                counter_order.get_quantity();
+                let matched: bool = Book::match_order(orders, asks, &mut order)?;
 
-                            if counter_quantity < order_quantity {
-                                Book::execute_order(counter_order)?;
-                                orders.remove(&counter_order.get_id());
-
-                                Book::partially_execute_order(&mut order,
-                                                              counter_quantity)?;
-                            } else if counter_quantity == order_quantity {
-                                Book::execute_order(counter_order)?;
-                                orders.remove(&counter_order.get_id());
-
-                                Book::execute_order(&mut order)?;
-                                matched = true;
-                                break;
-                            } else if counter_quantity > order_quantity {
-                                Book::partially_execute_order(counter_order,
-                                                              order_quantity)?;
-
-                                Book::execute_order(&mut order)?;
-                                matched = true;
-                                break;
-                            }
-                        }
-
-                        if matched {
-                            break;
-                        }
-                    }
-                }
-                
                 if !matched {
                     orders.insert(order_id, order);
                     
@@ -145,38 +108,7 @@ impl Book<'_> {
                 }
             },
             OrderType::Ask => { 
-                for (level_price, level_orders) in bids.iter_mut() {
-                    if level_price <= &OrderedFloat::from(order_price) {
-                        for counter_order in level_orders.iter_mut() {
-                            let counter_price: f64 = counter_order.get_price();
-                            let counter_quantity: u128 =
-                                counter_order.get_quantity();
-
-                            if counter_quantity < order_quantity {
-                                Book::execute_order(counter_order)?;
-                                orders.remove(&counter_order.get_id());
-
-                                Book::partially_execute_order(&mut order,
-                                                              counter_quantity)?;
-                            } else if counter_quantity == order_quantity {
-                                Book::execute_order(counter_order)?;
-                                orders.remove(&counter_order.get_id());
-
-                                Book::execute_order(&mut order)?;
-                                matched = true;
-                                break;
-                            } else if counter_quantity > order_quantity {
-                                Book::partially_execute_order(counter_order,
-                                                              order_quantity)?;
-
-                                Book::execute_order(&mut order)?;
-                                matched = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
+                let matched: bool = Book::match_order(orders, bids, &mut order)?;
 
                 if !matched {
                     orders.insert(order_id, order);
@@ -219,6 +151,50 @@ impl Book<'_> {
 
         Ok(())
     }
+
+    fn match_order(orders: &mut HashMap<OrderId, Order>,
+                   side: &mut BTreeMap<OrderedFloat<f64>, VecDeque<&mut Order>>,
+                   mut order: &mut Order) -> Result<bool, BookError> {
+        let order_price: f64 = order.get_price();
+        let order_quantity: u128 = order.get_quantity();
+        let mut matched: bool = false;
+
+        for (level_price, level_orders) in side.iter_mut() {
+            if level_price <= &OrderedFloat::from(order_price) {
+                for counter_order in level_orders.iter_mut() {
+                    let counter_price: f64 = counter_order.get_price();
+                    let counter_quantity: u128 = counter_order.get_quantity();
+
+                    if counter_quantity < order_quantity {
+                        Book::execute_order(counter_order)?;
+                        orders.remove(&counter_order.get_id());
+
+                        Book::partially_execute_order(&mut order, counter_quantity)?;
+                    } else if counter_quantity == order_quantity {
+                        Book::execute_order(counter_order)?;
+                        orders.remove(&counter_order.get_id());
+
+                        Book::execute_order(&mut order)?;
+                        matched = true;
+                        break;
+                    } else if counter_quantity > order_quantity {
+                        Book::partially_execute_order(counter_order, order_quantity)?;
+
+                        Book::execute_order(&mut order)?;
+                        matched = true;
+                        break;
+                    }
+                }
+
+                if matched {
+                    break;
+                }
+            }
+        }
+
+        Ok(matched)
+    }
+
 }
 
 
