@@ -107,51 +107,23 @@ impl Book<'_> {
                                 counter_order.get_quantity();
 
                             if counter_quantity < order_quantity {
-                                // execute entire counterparty order
-                                counter_order.get_owner_mut().add_balance(
-                                    counter_price * counter_quantity as f64);
-                                counter_order.get_owner_mut().take_holding(
-                                    order_ticker.clone(),
-                                    counter_quantity).unwrap();
+                                Book::execute_order(counter_order)?;
                                 orders.remove(&counter_order.get_id());
 
-                                // partially execute local order
-                                order.get_owner_mut().take_balance(
-                                    counter_price * counter_quantity as f64);
-                                order.get_owner_mut().add_holding(
-                                    order_ticker.clone(),
-                                    counter_quantity).unwrap();
+                                Book::partially_execute_order(&mut order,
+                                                              counter_quantity)?;
                             } else if counter_quantity == order_quantity {
-                                // execute entire counterparty order
-                                counter_order.get_owner_mut().add_balance(
-                                    counter_price * counter_quantity as f64);
-                                order.get_owner_mut().add_holding(
-                                    order_ticker.clone(),
-                                    order_quantity).unwrap();
+                                Book::execute_order(counter_order)?;
                                 orders.remove(&counter_order.get_id());
 
-                                // execute entire local order 
-                                order.get_owner_mut().take_balance(
-                                    counter_price * counter_quantity as f64);
-                                order.get_owner_mut().add_holding(
-                                    order_ticker.clone(),
-                                    order_quantity).unwrap();
+                                Book::execute_order(&mut order)?;
                                 matched = true;
                                 break;
                             } else if counter_quantity > order_quantity {
-                                // partially execute counterparty order
-                                counter_order.get_owner_mut().add_balance(
-                                    counter_price * counter_quantity as f64);
-                                counter_order.get_owner_mut().take_holding(
-                                    order_ticker.clone(),
-                                    order_quantity).unwrap();
+                                Book::partially_execute_order(counter_order,
+                                                              order_quantity)?;
 
-                                // execute entire local order
-                                order.get_owner_mut().take_balance(
-                                    counter_price * counter_quantity as f64);
-                                order.get_owner_mut().add_holding(
-                                    order_ticker.clone(),
-                                    order_quantity).unwrap();
+                                Book::execute_order(&mut order)?;
                                 matched = true;
                                 break;
                             }
@@ -181,51 +153,23 @@ impl Book<'_> {
                                 counter_order.get_quantity();
 
                             if counter_quantity < order_quantity {
-                                // execute entire counterparty order
-                                counter_order.get_owner_mut().take_balance(
-                                    counter_price * counter_quantity as f64);
-                                counter_order.get_owner_mut().add_holding(
-                                    order_ticker.clone(),
-                                    counter_quantity).unwrap();
+                                Book::execute_order(counter_order)?;
                                 orders.remove(&counter_order.get_id());
 
-                                // partially execute local order
-                                order.get_owner_mut().add_balance(
-                                    counter_price * counter_quantity as f64);
-                                order.get_owner_mut().take_holding(
-                                    order_ticker.clone(),
-                                    counter_quantity).unwrap();
+                                Book::partially_execute_order(&mut order,
+                                                              counter_quantity)?;
                             } else if counter_quantity == order_quantity {
-                                // execute entire counterparty order
-                                counter_order.get_owner_mut().take_balance(
-                                    counter_price * counter_quantity as f64);
-                                order.get_owner_mut().take_holding(
-                                    order_ticker.clone(),
-                                    order_quantity).unwrap();
+                                Book::execute_order(counter_order)?;
                                 orders.remove(&counter_order.get_id());
 
-                                // execute entire local order 
-                                order.get_owner_mut().add_balance(
-                                    counter_price * counter_quantity as f64);
-                                order.get_owner_mut().take_holding(
-                                    order_ticker.clone(),
-                                    order_quantity).unwrap();
+                                Book::execute_order(&mut order)?;
                                 matched = true;
                                 break;
                             } else if counter_quantity > order_quantity {
-                                // partially execute counterparty order
-                                counter_order.get_owner_mut().take_balance(
-                                    counter_price * counter_quantity as f64);
-                                counter_order.get_owner_mut().add_holding(
-                                    order_ticker.clone(),
-                                    order_quantity).unwrap();
+                                Book::partially_execute_order(counter_order,
+                                                              order_quantity)?;
 
-                                // execute entire local order
-                                order.get_owner_mut().add_balance(
-                                    counter_price * counter_quantity as f64);
-                                order.get_owner_mut().take_holding(
-                                    order_ticker.clone(),
-                                    order_quantity).unwrap();
+                                Book::execute_order(&mut order)?;
                                 matched = true;
                                 break;
                             }
@@ -250,6 +194,30 @@ impl Book<'_> {
 
     pub fn cancel(&mut self, id: OrderId) -> Result<(), BookError> {
         unimplemented!();
+    }
+
+    fn execute_order(order: &mut Order) -> Result<(), BookError> {
+        Book::partially_execute_order(order, order.get_quantity())
+    }
+
+    fn partially_execute_order(order: &mut Order, quantity: u128) ->
+        Result<(), BookError> {
+        let order_type: OrderType = order.get_order_type();
+        let ticker: String = order.get_ticker();
+        let price: f64 = order.get_price();
+
+        match order_type {
+            OrderType::Bid => {
+                order.get_owner_mut().take_balance(price * quantity as f64);
+                order.get_owner_mut().add_holding(ticker, quantity).unwrap();
+            },
+            OrderType::Ask => {
+                order.get_owner_mut().add_balance(price * quantity as f64);
+                order.get_owner_mut().take_holding(ticker, quantity).unwrap();
+            }
+        }
+
+        Ok(())
     }
 }
 
