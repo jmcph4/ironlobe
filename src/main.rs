@@ -1,6 +1,6 @@
 mod account;
-mod order;
 mod book;
+mod order;
 
 fn main() {
     println!("Hello, world!");

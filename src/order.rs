@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use crate::account;
 
 pub enum OrderError {
-    OrderStillActive
+    OrderStillActive,
 }
 
 pub type OrderId = u128;
@@ -14,7 +14,7 @@ pub type OrderId = u128;
 #[allow(dead_code)]
 pub enum OrderType {
     Bid,
-    Ask
+    Ask,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,13 +28,19 @@ pub struct Order {
     created: DateTime<Utc>,
     modified: DateTime<Utc>,
     cancelled: DateTime<Utc>,
-    active: bool
+    active: bool,
 }
 
 #[allow(dead_code)]
 impl Order {
-    pub fn new(id: u128, owner: account::Account, ticker: String,
-               order_type: OrderType, price: f64, quantity: u128) -> Order {
+    pub fn new(
+        id: u128,
+        owner: account::Account,
+        ticker: String,
+        order_type: OrderType,
+        price: f64,
+        quantity: u128,
+    ) -> Order {
         Order {
             id: id,
             owner: owner,
@@ -45,7 +51,7 @@ impl Order {
             created: Utc::now(),
             modified: Utc::now(),
             cancelled: Utc::now(),
-            active: true
+            active: true,
         }
     }
 
@@ -97,5 +103,3 @@ impl Order {
         self.active
     }
 }
-
-

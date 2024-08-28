@@ -1,9 +1,9 @@
-use std::collections::{HashMap, BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::iter::FromIterator;
 extern crate ordered_float;
 
-use ordered_float::OrderedFloat;
 use crate::order::*;
+use ordered_float::OrderedFloat;
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -25,7 +25,7 @@ pub struct Book<'a> {
     bids: BTreeMap<PriceKey, VecDeque<&'a mut Order>>,
     asks: BTreeMap<PriceKey, VecDeque<&'a mut Order>>,
     ltp: f64,
-    has_traded: bool
+    has_traded: bool,
 }
 
 #[allow(dead_code, unused_variables)]
@@ -39,7 +39,7 @@ impl Book<'_> {
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
             ltp: 0.00,
-            has_traded: false
+            has_traded: false,
         }
     }
 
@@ -58,15 +58,17 @@ impl Book<'_> {
     pub fn get_order(&self, id: OrderId) -> Result<&Order, BookError> {
         match self.orders.get(&id) {
             Some(order) => Ok(order),
-            None => Err(BookError::OrderNotFound)
+            None => Err(BookError::OrderNotFound),
         }
     }
 
-    pub fn get_order_mut(&mut self, id: OrderId) ->
-        Result<&mut Order, BookError> {
+    pub fn get_order_mut(
+        &mut self,
+        id: OrderId,
+    ) -> Result<&mut Order, BookError> {
         match self.orders.get_mut(&id) {
             Some(order) => Ok(order),
-            None => Err(BookError::OrderNotFound)
+            None => Err(BookError::OrderNotFound),
         }
     }
 
@@ -92,30 +94,37 @@ impl Book<'_> {
             ref mut orders,
             ref mut bids,
             ref mut asks,
-            .. } = self;
-       
+            ..
+        } = self;
+
         match order_type {
             OrderType::Bid => {
-                let matched: bool = Book::match_order(orders, asks, &mut order)?;
+                let matched: bool =
+                    Book::match_order(orders, asks, &mut order)?;
 
                 if !matched {
                     orders.insert(order_id, order);
-                    
+
                     if !bids.contains_key(&OrderedFloat::from(order_price)) {
-                        bids.insert(OrderedFloat::from(order_price),
-                        VecDeque::from_iter(vec![]));
-                    }   
+                        bids.insert(
+                            OrderedFloat::from(order_price),
+                            VecDeque::from_iter(vec![]),
+                        );
+                    }
                 }
-            },
-            OrderType::Ask => { 
-                let matched: bool = Book::match_order(orders, bids, &mut order)?;
+            }
+            OrderType::Ask => {
+                let matched: bool =
+                    Book::match_order(orders, bids, &mut order)?;
 
                 if !matched {
                     orders.insert(order_id, order);
-                    
+
                     if !asks.contains_key(&OrderedFloat::from(order_price)) {
-                        asks.insert(OrderedFloat::from(order_price),
-                        VecDeque::from_iter(vec![]));
+                        asks.insert(
+                            OrderedFloat::from(order_price),
+                            VecDeque::from_iter(vec![]),
+                        );
                     }
                 }
             }
@@ -132,8 +141,10 @@ impl Book<'_> {
         Book::partially_execute_order(order, order.get_quantity())
     }
 
-    fn partially_execute_order(order: &mut Order, quantity: u128) ->
-        Result<(), BookError> {
+    fn partially_execute_order(
+        order: &mut Order,
+        quantity: u128,
+    ) -> Result<(), BookError> {
         let order_type: OrderType = order.get_order_type();
         let ticker: String = order.get_ticker();
         let price: f64 = order.get_price();
@@ -142,19 +153,24 @@ impl Book<'_> {
             OrderType::Bid => {
                 order.get_owner_mut().take_balance(price * quantity as f64);
                 order.get_owner_mut().add_holding(ticker, quantity).unwrap();
-            },
+            }
             OrderType::Ask => {
                 order.get_owner_mut().add_balance(price * quantity as f64);
-                order.get_owner_mut().take_holding(ticker, quantity).unwrap();
+                order
+                    .get_owner_mut()
+                    .take_holding(ticker, quantity)
+                    .unwrap();
             }
         }
 
         Ok(())
     }
 
-    fn match_order(orders: &mut HashMap<OrderId, Order>,
-                   side: &mut BTreeMap<OrderedFloat<f64>, VecDeque<&mut Order>>,
-                   mut order: &mut Order) -> Result<bool, BookError> {
+    fn match_order(
+        orders: &mut HashMap<OrderId, Order>,
+        side: &mut BTreeMap<OrderedFloat<f64>, VecDeque<&mut Order>>,
+        mut order: &mut Order,
+    ) -> Result<bool, BookError> {
         let order_price: f64 = order.get_price();
         let order_quantity: u128 = order.get_quantity();
         let mut matched: bool = false;
@@ -169,7 +185,10 @@ impl Book<'_> {
                         Book::execute_order(counter_order)?;
                         orders.remove(&counter_order.get_id());
 
-                        Book::partially_execute_order(&mut order, counter_quantity)?;
+                        Book::partially_execute_order(
+                            &mut order,
+                            counter_quantity,
+                        )?;
                     } else if counter_quantity == order_quantity {
                         Book::execute_order(counter_order)?;
                         orders.remove(&counter_order.get_id());
@@ -178,7 +197,10 @@ impl Book<'_> {
                         matched = true;
                         break;
                     } else if counter_quantity > order_quantity {
-                        Book::partially_execute_order(counter_order, order_quantity)?;
+                        Book::partially_execute_order(
+                            counter_order,
+                            order_quantity,
+                        )?;
 
                         Book::execute_order(&mut order)?;
                         matched = true;
@@ -194,32 +216,29 @@ impl Book<'_> {
 
         Ok(matched)
     }
-
 }
-
 
 impl PartialEq for Book<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id &&
-            self.name == other.name &&
-            self.ticker == other.ticker &&
-            self.ltp == other.ltp &&
-            self.has_traded == other.has_traded &&
-            self.bids.iter().len() == other.bids.iter().len() &&
-            self.asks.iter().len() == other.asks.iter().len() &&
-            Vec::new().extend(self.bids.iter().map(|x| x)) == 
-                Vec::new().extend(other.bids.iter().map(|x| x)) &&
-            Vec::new().extend(self.asks.iter().map(|x| x)) == 
-                Vec::new().extend(other.asks.iter().map(|x| x))
+        self.id == other.id
+            && self.name == other.name
+            && self.ticker == other.ticker
+            && self.ltp == other.ltp
+            && self.has_traded == other.has_traded
+            && self.bids.iter().len() == other.bids.iter().len()
+            && self.asks.iter().len() == other.asks.iter().len()
+            && Vec::new().extend(self.bids.iter().map(|x| x))
+                == Vec::new().extend(other.bids.iter().map(|x| x))
+            && Vec::new().extend(self.asks.iter().map(|x| x))
+                == Vec::new().extend(other.asks.iter().map(|x| x))
     }
 }
 
-
 #[cfg(test)]
-mod tests { 
+mod tests {
     use super::*;
-    use std::collections::HashMap;
     use crate::account::*;
+    use std::collections::HashMap;
 
     #[test]
     fn test_new() -> Result<(), BookError> {
@@ -228,7 +247,7 @@ mod tests {
         let ticker: String = "BOOK".to_string();
 
         let actual_book: Book = Book::new(id, name.clone(), ticker.clone());
-        let expected_book: Book = Book{
+        let expected_book: Book = Book {
             id: id,
             name: name.clone(),
             ticker: ticker.clone(),
@@ -236,7 +255,7 @@ mod tests {
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
             ltp: 0.00,
-            has_traded: false
+            has_traded: false,
         };
 
         assert_eq!(actual_book, expected_book);
@@ -250,10 +269,12 @@ mod tests {
         let account_name: String = "Account".to_string();
         let account_balance: f64 = 12000.00;
         let account_holdings: HashMap<String, u128> = HashMap::new();
-        let actual_account: Account = Account::new(account_id,
-                                                   account_name,
-                                                   account_balance,
-                                                   account_holdings);
+        let actual_account: Account = Account::new(
+            account_id,
+            account_name,
+            account_balance,
+            account_holdings,
+        );
 
         /* build order */
         let order_id: OrderId = 1;
@@ -262,41 +283,45 @@ mod tests {
         let order_type: OrderType = OrderType::Bid;
         let order_price: f64 = 12.00;
         let order_quantity: u128 = 33;
-        let actual_order: Order = Order::new(order_id,
-                                                 order_owner,
-                                                 order_ticker,
-                                                 order_type,
-                                                 order_price,
-                                                 order_quantity);
+        let actual_order: Order = Order::new(
+            order_id,
+            order_owner,
+            order_ticker,
+            order_type,
+            order_price,
+            order_quantity,
+        );
 
         /* build book */
         let book_id: BookId = 1;
         let book_name: String = "Book".to_string();
         let book_ticker: String = "BOOK".to_string();
-        let mut actual_book: Book = Book::new(book_id,
-                                              book_name.clone(),
-                                              book_ticker.clone());
+        let mut actual_book: Book =
+            Book::new(book_id, book_name.clone(), book_ticker.clone());
 
         /* we need to build this field of the expected book due to movement
          * of values */
         let mut expected_orders: HashMap<OrderId, Order> = HashMap::new();
         expected_orders.insert(order_id, actual_order.clone());
- 
+
         /* submit order to book */
         actual_book.submit(actual_order)?;
 
         /* build expected fields */
         let mut cloned_expected_orders: HashMap<OrderId, Order> =
             expected_orders.clone();
-        let mut expected_bids: BTreeMap<OrderedFloat<f64>,
-        VecDeque<&mut Order>> =
-            BTreeMap::new();
-        expected_bids.insert(OrderedFloat::from(order_price),
-            VecDeque::from_iter(
-                vec![cloned_expected_orders.get_mut(&order_id).unwrap()]));
+        let mut expected_bids: BTreeMap<
+            OrderedFloat<f64>,
+            VecDeque<&mut Order>,
+        > = BTreeMap::new();
+        expected_bids.insert(
+            OrderedFloat::from(order_price),
+            VecDeque::from_iter(vec![cloned_expected_orders
+                .get_mut(&order_id)
+                .unwrap()]),
+        );
 
-        let expected_asks: BTreeMap<OrderedFloat<f64>,
-        VecDeque<&mut Order>> =
+        let expected_asks: BTreeMap<OrderedFloat<f64>, VecDeque<&mut Order>> =
             BTreeMap::new();
 
         let expected_book: Book = Book {
@@ -307,7 +332,7 @@ mod tests {
             bids: expected_bids,
             asks: expected_asks,
             ltp: 0.00,
-            has_traded: false
+            has_traded: false,
         };
 
         assert_eq!(actual_book, expected_book);
@@ -321,10 +346,12 @@ mod tests {
         let account_name: String = "Account".to_string();
         let account_balance: f64 = 12000.00;
         let account_holdings: HashMap<String, u128> = HashMap::new();
-        let actual_account: Account = Account::new(account_id,
-                                                   account_name,
-                                                   account_balance,
-                                                   account_holdings);
+        let actual_account: Account = Account::new(
+            account_id,
+            account_name,
+            account_balance,
+            account_holdings,
+        );
 
         /* build order */
         let order_id: OrderId = 1;
@@ -333,42 +360,46 @@ mod tests {
         let order_type: OrderType = OrderType::Ask;
         let order_price: f64 = 12.00;
         let order_quantity: u128 = 33;
-        let actual_order: Order = Order::new(order_id,
-                                                 order_owner,
-                                                 order_ticker,
-                                                 order_type,
-                                                 order_price,
-                                                 order_quantity);
+        let actual_order: Order = Order::new(
+            order_id,
+            order_owner,
+            order_ticker,
+            order_type,
+            order_price,
+            order_quantity,
+        );
 
         /* build book */
         let book_id: BookId = 1;
         let book_name: String = "Book".to_string();
         let book_ticker: String = "BOOK".to_string();
-        let mut actual_book: Book = Book::new(book_id,
-                                              book_name.clone(),
-                                              book_ticker.clone());
+        let mut actual_book: Book =
+            Book::new(book_id, book_name.clone(), book_ticker.clone());
 
         /* we need to build this field of the expected book due to movement
          * of values */
         let mut expected_orders: HashMap<OrderId, Order> = HashMap::new();
         expected_orders.insert(order_id, actual_order.clone());
- 
+
         /* submit order to book */
         actual_book.submit(actual_order)?;
 
         /* build expected fields */
-        let expected_bids: BTreeMap<OrderedFloat<f64>,
-        VecDeque<&mut Order>> =
+        let expected_bids: BTreeMap<OrderedFloat<f64>, VecDeque<&mut Order>> =
             BTreeMap::new();
 
         let mut cloned_expected_orders: HashMap<OrderId, Order> =
             expected_orders.clone();
-        let mut expected_asks: BTreeMap<OrderedFloat<f64>,
-        VecDeque<&mut Order>> =
-            BTreeMap::new();
-        expected_asks.insert(OrderedFloat::from(order_price),
-            VecDeque::from_iter(
-                vec![cloned_expected_orders.get_mut(&order_id).unwrap()]));
+        let mut expected_asks: BTreeMap<
+            OrderedFloat<f64>,
+            VecDeque<&mut Order>,
+        > = BTreeMap::new();
+        expected_asks.insert(
+            OrderedFloat::from(order_price),
+            VecDeque::from_iter(vec![cloned_expected_orders
+                .get_mut(&order_id)
+                .unwrap()]),
+        );
 
         let expected_book: Book = Book {
             id: book_id,
@@ -378,11 +409,10 @@ mod tests {
             bids: expected_bids,
             asks: expected_asks,
             ltp: 0.00,
-            has_traded: false
+            has_traded: false,
         };
 
         assert_eq!(actual_book, expected_book);
         Ok(())
     }
 }
-

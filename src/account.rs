@@ -12,14 +12,23 @@ pub struct Account {
     id: AccountId,
     name: String,
     balance: f64,
-    holdings: HashMap<String, u128>
+    holdings: HashMap<String, u128>,
 }
 
 #[allow(dead_code)]
 impl Account {
-    pub fn new(id: AccountId, name: String, balance: f64,
-               holdings: HashMap<String, u128>) -> Account {
-        Account {id, name, balance, holdings}
+    pub fn new(
+        id: AccountId,
+        name: String,
+        balance: f64,
+        holdings: HashMap<String, u128>,
+    ) -> Account {
+        Account {
+            id,
+            name,
+            balance,
+            holdings,
+        }
     }
 
     pub fn get_id(&self) -> AccountId {
@@ -66,8 +75,11 @@ impl Account {
         }
     }
 
-    pub fn set_holding(&mut self, ticker: String, quantity: u128) -> 
-        Result<(), AccountError> {
+    pub fn set_holding(
+        &mut self,
+        ticker: String,
+        quantity: u128,
+    ) -> Result<(), AccountError> {
         if self.holds(ticker.clone()) {
             self.holdings.remove(&ticker);
             self.holdings.insert(ticker, quantity);
@@ -78,9 +90,16 @@ impl Account {
         Ok(())
     }
 
-    pub fn add_holding(&mut self, ticker: String, quantity: u128) -> Result<(), AccountError> {
+    pub fn add_holding(
+        &mut self,
+        ticker: String,
+        quantity: u128,
+    ) -> Result<(), AccountError> {
         if self.holds(ticker.clone()) {
-            self.set_holding(ticker.clone(), self.get_holding(ticker.clone())? + quantity)?;
+            self.set_holding(
+                ticker.clone(),
+                self.get_holding(ticker.clone())? + quantity,
+            )?;
         } else {
             return Err(AccountError::AssetNotFound);
         }
@@ -88,9 +107,16 @@ impl Account {
         Ok(())
     }
 
-    pub fn take_holding(&mut self, ticker: String, quantity: u128) -> Result<(), AccountError> {
+    pub fn take_holding(
+        &mut self,
+        ticker: String,
+        quantity: u128,
+    ) -> Result<(), AccountError> {
         if self.holds(ticker.clone()) {
-            self.set_holding(ticker.clone(), self.get_holding(ticker.clone())? - quantity)?;
+            self.set_holding(
+                ticker.clone(),
+                self.get_holding(ticker.clone())? - quantity,
+            )?;
         } else {
             return Err(AccountError::AssetNotFound);
         }
@@ -98,4 +124,3 @@ impl Account {
         Ok(())
     }
 }
-
