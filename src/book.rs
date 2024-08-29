@@ -32,9 +32,9 @@ pub struct Book<'a> {
 impl Book<'_> {
     pub fn new(id: u128, name: String, ticker: String) -> Book<'static> {
         Book {
-            id: id,
-            name: name,
-            ticker: ticker,
+            id,
+            name,
+            ticker,
             orders: HashMap::new(),
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
@@ -105,12 +105,8 @@ impl Book<'_> {
                 if !matched {
                     orders.insert(order_id, order);
 
-                    if !bids.contains_key(&OrderedFloat::from(order_price)) {
-                        bids.insert(
-                            OrderedFloat::from(order_price),
-                            VecDeque::from_iter(vec![]),
-                        );
-                    }
+                    bids.entry(OrderedFloat::from(order_price))
+                        .or_insert_with(|| VecDeque::from_iter(vec![]));
                 }
             }
             OrderType::Ask => {
@@ -120,12 +116,8 @@ impl Book<'_> {
                 if !matched {
                     orders.insert(order_id, order);
 
-                    if !asks.contains_key(&OrderedFloat::from(order_price)) {
-                        asks.insert(
-                            OrderedFloat::from(order_price),
-                            VecDeque::from_iter(vec![]),
-                        );
-                    }
+                    asks.entry(OrderedFloat::from(order_price))
+                        .or_insert_with(|| VecDeque::from_iter(vec![]));
                 }
             }
         }
@@ -169,7 +161,7 @@ impl Book<'_> {
     fn match_order(
         orders: &mut HashMap<OrderId, Order>,
         side: &mut BTreeMap<OrderedFloat<f64>, VecDeque<&mut Order>>,
-        mut order: &mut Order,
+        order: &mut Order,
     ) -> Result<bool, BookError> {
         let order_price: f64 = order.get_price();
         let order_quantity: u128 = order.get_quantity();
@@ -185,15 +177,12 @@ impl Book<'_> {
                         Book::execute_order(counter_order)?;
                         orders.remove(&counter_order.get_id());
 
-                        Book::partially_execute_order(
-                            &mut order,
-                            counter_quantity,
-                        )?;
+                        Book::partially_execute_order(order, counter_quantity)?;
                     } else if counter_quantity == order_quantity {
                         Book::execute_order(counter_order)?;
                         orders.remove(&counter_order.get_id());
 
-                        Book::execute_order(&mut order)?;
+                        Book::execute_order(order)?;
                         matched = true;
                         break;
                     } else if counter_quantity > order_quantity {
@@ -202,7 +191,7 @@ impl Book<'_> {
                             order_quantity,
                         )?;
 
-                        Book::execute_order(&mut order)?;
+                        Book::execute_order(order)?;
                         matched = true;
                         break;
                     }
@@ -227,8 +216,10 @@ impl PartialEq for Book<'_> {
             && self.has_traded == other.has_traded
             && self.bids.iter().len() == other.bids.iter().len()
             && self.asks.iter().len() == other.asks.iter().len()
-            && Vec::from_iter(self.bids.iter()) == Vec::from_iter(other.bids.iter())
-            && Vec::from_iter(self.asks.iter()) == Vec::from_iter(other.asks.iter())
+            && Vec::from_iter(self.bids.iter())
+                == Vec::from_iter(other.bids.iter())
+            && Vec::from_iter(self.asks.iter())
+                == Vec::from_iter(other.asks.iter())
     }
 }
 

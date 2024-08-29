@@ -42,12 +42,12 @@ impl Order {
         quantity: u128,
     ) -> Order {
         Order {
-            id: id,
-            owner: owner,
+            id,
+            owner,
             ticker: ticker.clone(),
-            order_type: order_type,
-            price: price,
-            quantity: quantity,
+            order_type,
+            price,
+            quantity,
             created: Utc::now(),
             modified: Utc::now(),
             cancelled: Utc::now(),
