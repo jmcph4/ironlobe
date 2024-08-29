@@ -227,10 +227,8 @@ impl PartialEq for Book<'_> {
             && self.has_traded == other.has_traded
             && self.bids.iter().len() == other.bids.iter().len()
             && self.asks.iter().len() == other.asks.iter().len()
-            && Vec::new().extend(self.bids.iter().map(|x| x))
-                == Vec::new().extend(other.bids.iter().map(|x| x))
-            && Vec::new().extend(self.asks.iter().map(|x| x))
-                == Vec::new().extend(other.asks.iter().map(|x| x))
+            && Vec::from_iter(self.bids.iter()) == Vec::from_iter(other.bids.iter())
+            && Vec::from_iter(self.asks.iter()) == Vec::from_iter(other.asks.iter())
     }
 }
 
