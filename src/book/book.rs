@@ -1,0 +1,22 @@
+use std::fmt::Debug;
+
+use crate::{
+    common::{Price, Quantity},
+    order::{Order, OrderId},
+};
+
+pub type BookId = u64;
+
+pub trait Book<T: Order>: Clone + Debug {
+    type Error;
+
+    fn id(&self) -> BookId;
+    fn name(&self) -> String;
+    fn ticker(&self) -> String;
+    fn order(&self, id: OrderId) -> Option<T>;
+    fn add(&mut self, order: T) -> Result<T, Self::Error>;
+    fn cancel(&mut self, order_id: OrderId) -> Result<T, Self::Error>;
+    fn ltp(&self) -> Option<Price>;
+    fn depth(&self) -> (Quantity, Quantity);
+    fn top(&self) -> (Price, Price);
+}

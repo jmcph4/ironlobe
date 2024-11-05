@@ -1,12 +1,12 @@
 [package]
 name = "ironlobe"
-version = "0.1.0"
-authors = ["jmcph4 <jmcph4@users.noreply.github.com>"]
-edition = "2018"
+version = "0.2.0"
+authors = ["Jack McPherson <jack@jmcph4.dev>"]
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = ">=0.4.38"
-ordered-float = ">=1.1.1"
+chrono = { version = "0.4.38", features = ["serde"] }
+eyre = "0.6.12"
 
