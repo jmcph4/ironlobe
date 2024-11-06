@@ -85,6 +85,8 @@ where
 
         let col_width = 17;
 
+        writeln!(f, "{:>17} | {:<17}", "BIDS", "ASKS")?;
+
         for ask in asks {
             writeln!(
                 f,
