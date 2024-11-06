@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, RwLock};
 
+use chrono::Utc;
+use eq_float::F64;
 use eyre::ErrReport;
 
 use crate::event::{EventKind, Match, MatchInfo};
@@ -32,11 +34,27 @@ pub struct Metadata {
 pub struct BTreeBook<T: Order> {
     metadata: Metadata,
     events: Arc<RwLock<Vec<Event<T>>>>,
-    bids: Arc<RwLock<BTreeMap<Price, VecDeque<T>>>>,
-    asks: Arc<RwLock<BTreeMap<Price, VecDeque<T>>>>,
-    ltp: Arc<RwLock<Price>>,
+    bids: Arc<RwLock<BTreeMap<F64, VecDeque<T>>>>,
+    asks: Arc<RwLock<BTreeMap<F64, VecDeque<T>>>>,
+    ltp: Arc<RwLock<Option<Price>>>,
     depth: Arc<RwLock<(Quantity, Quantity)>>,
 }
+
+impl<T> PartialEq for BTreeBook<T>
+where
+    T: Order,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.metadata == other.metadata
+            && *self.events.read().unwrap() == *other.events.read().unwrap()
+            && *self.bids.read().unwrap() == *other.bids.read().unwrap()
+            && *self.asks.read().unwrap() == *other.asks.read().unwrap()
+            && *self.ltp.read().unwrap() == *other.ltp.read().unwrap()
+            && *self.depth.read().unwrap() == *other.depth.read().unwrap()
+    }
+}
+
+impl<T> Eq for BTreeBook<T> where T: Order {}
 
 impl<T> BTreeBook<T>
 where
@@ -48,12 +66,66 @@ where
             events: Arc::new(RwLock::new(vec![])),
             bids: Arc::new(RwLock::new(BTreeMap::new())),
             asks: Arc::new(RwLock::new(BTreeMap::new())),
-            ltp: Arc::new(RwLock::new(Price::default())),
+            ltp: Arc::new(RwLock::new(None)),
             depth: Arc::new(RwLock::new((
                 Quantity::default(),
                 Quantity::default(),
             ))),
         }
+    }
+
+    pub fn meta(metadata: Metadata) -> Self {
+        BTreeBook {
+            metadata,
+            events: Arc::new(RwLock::new(vec![])),
+            bids: Arc::new(RwLock::new(BTreeMap::new())),
+            asks: Arc::new(RwLock::new(BTreeMap::new())),
+            ltp: Arc::new(RwLock::new(None)),
+            depth: Arc::new(RwLock::new((
+                Quantity::default(),
+                Quantity::default(),
+            ))),
+        }
+    }
+
+    fn crosses(&self, price: Price, kind: OrderKind) -> bool {
+        match kind {
+            OrderKind::Bid => match self.top() {
+                (_, Some(best_ask)) => price >= best_ask,
+                _ => false,
+            },
+            OrderKind::Ask => match self.top() {
+                (Some(best_bid), _) => price <= best_bid,
+                _ => false,
+            },
+        }
+    }
+
+    fn add_order(&mut self, order: T) {
+        match order.kind() {
+            OrderKind::Bid => {
+                self.bids
+                    .write()
+                    .unwrap()
+                    .entry(F64(order.price()))
+                    .or_insert_with(|| VecDeque::from_iter(vec![]))
+                    .push_back(order.clone());
+                self.depth.write().unwrap().0 += order.quantity();
+            }
+            OrderKind::Ask => {
+                self.asks
+                    .write()
+                    .unwrap()
+                    .entry(F64(order.price()))
+                    .or_insert_with(|| VecDeque::from_iter(vec![]))
+                    .push_back(order.clone());
+                self.depth.write().unwrap().1 += order.quantity();
+            }
+        }
+        self.events.write().unwrap().push(Event {
+            timestamp: Utc::now(),
+            kind: EventKind::Post(order.clone()),
+        });
     }
 }
 
@@ -86,6 +158,11 @@ where
     }
 
     fn add(&mut self, order: T) -> Result<T, Self::Error> {
+        if !self.crosses(order.price(), order.kind()) {
+            self.add_order(order.clone());
+            return Ok(order);
+        }
+
         let mut matched = false;
         let mut quantity_remaining = order.quantity();
 
@@ -95,7 +172,7 @@ where
                     if matched {
                         break;
                     }
-                    if *level <= order.price() {
+                    if *level <= F64(order.price()) {
                         for incumbent in orders {
                             if quantity_remaining > 0 {
                                 quantity_remaining -= incumbent.quantity();
@@ -139,7 +216,7 @@ where
                     if matched {
                         break;
                     }
-                    if *level >= order.price() {
+                    if *level >= F64(order.price()) {
                         for incumbent in orders {
                             if quantity_remaining > 0 {
                                 quantity_remaining -= incumbent.quantity();
@@ -190,24 +267,38 @@ where
     }
 
     fn ltp(&self) -> Option<Price> {
-        self.ltp.read().ok().map(|x| *x)
+        *self.ltp.read().unwrap()
     }
 
     fn depth(&self) -> (Quantity, Quantity) {
         *self.depth.read().unwrap()
     }
 
-    fn top(&self) -> (Price, Price) {
-        todo!()
+    fn top(&self) -> (Option<Price>, Option<Price>) {
+        (
+            self.bids.read().unwrap().first_key_value().map(|x| x.0 .0),
+            self.asks.read().unwrap().first_key_value().map(|x| x.0 .0),
+        )
+    }
+
+    fn crossed(&self) -> bool {
+        match self.top() {
+            (Some(best_bid), Some(best_ask)) => best_ask > best_bid,
+            _ => false,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::collections::HashMap;
+    use chrono::Utc;
+    use eq_float::F64;
 
-    fn test_metadata() -> Metadata {
+    use crate::order::PlainOrder;
+
+    use super::*;
+
+    fn mock_metadata() -> Metadata {
         let id: BookId = 1;
         let name: String = "Book".to_string();
         let ticker: String = "BOOK".to_string();
@@ -217,14 +308,14 @@ mod tests {
 
     #[test]
     fn test_new() -> Result<(), BookError> {
-        let actual_book: BTreeBook<TestOrder> =
-            BTreeBook::new(id, name.clone(), ticker.clone());
+        let actual_book: BTreeBook<PlainOrder> =
+            BTreeBook::meta(mock_metadata());
         let expected_book = BTreeBook {
-            metadata: test_metadata(),
+            metadata: mock_metadata(),
             events: Arc::new(RwLock::new(vec![])),
             bids: Arc::new(RwLock::new(BTreeMap::new())),
             asks: Arc::new(RwLock::new(BTreeMap::new())),
-            ltp: Arc::new(RwLock::new(Price::default())),
+            ltp: Arc::new(RwLock::new(None)),
             depth: Arc::new(RwLock::new((
                 Quantity::default(),
                 Quantity::default(),
@@ -236,156 +327,100 @@ mod tests {
     }
 
     #[test]
-    fn test_submit_single_bid() -> Result<(), BookError> {
-        /* build account */
-        let account_id: AccountId = 1;
-        let account_name: String = "Account".to_string();
-        let account_balance: f64 = 12000.00;
-        let account_holdings: HashMap<String, u128> = HashMap::new();
-        let actual_account: Account = Account::new(
-            account_id,
-            account_name,
-            account_balance,
-            account_holdings,
-        );
+    fn test_submit_single_bid() {
+        let timestamp = Utc::now();
 
-        /* build order */
-        let order_id: OrderId = 1;
-        let order_owner: Account = actual_account;
-        let order_ticker: String = "BOOK".to_string();
-        let order_type: OrderKind = OrderKind::Bid;
-        let order_price: f64 = 12.00;
-        let order_quantity: u128 = 33;
-        let actual_order: Order = Order::new(
-            order_id,
-            order_owner,
-            order_ticker,
-            order_type,
-            order_price,
-            order_quantity,
-        );
-
-        /* build book */
-        let book_id: BookId = 1;
-        let book_name: String = "Book".to_string();
-        let book_ticker: String = "BOOK".to_string();
-        let mut actual_book: Book =
-            Book::new(book_id, book_name.clone(), book_ticker.clone());
-
-        /* we need to build this field of the expected book due to movement
-         * of values */
-        let mut expected_orders: HashMap<OrderId, Order> = HashMap::new();
-        expected_orders.insert(order_id, actual_order.clone());
-
-        /* submit order to book */
-        actual_book.submit(actual_order)?;
-
-        /* build expected fields */
-        let mut cloned_expected_orders: HashMap<OrderId, Order> =
-            expected_orders.clone();
-        let mut expected_bids: BTreeMap<
-            OrderedFloat<f64>,
-            VecDeque<&mut Order>,
-        > = BTreeMap::new();
-        expected_bids.insert(
-            OrderedFloat::from(order_price),
-            VecDeque::from_iter(vec![cloned_expected_orders
-                .get_mut(&order_id)
-                .unwrap()]),
-        );
-
-        let expected_asks: BTreeMap<OrderedFloat<f64>, VecDeque<&mut Order>> =
-            BTreeMap::new();
-
-        let expected_book: Book = Book {
-            id: book_id,
-            name: book_name.clone(),
-            ticker: book_ticker.clone(),
-            orders: expected_orders,
-            bids: expected_bids,
-            asks: expected_asks,
-            ltp: 0.00,
-            has_traded: false,
+        let order = PlainOrder {
+            id: 1,
+            kind: OrderKind::Bid,
+            price: 12.00,
+            quantity: 10,
+            created: timestamp,
+            modified: timestamp,
+            cancelled: None,
+        };
+        let mut actual_book: BTreeBook<PlainOrder> =
+            BTreeBook::meta(mock_metadata());
+        let res = actual_book.add(order.clone());
+        let expected_book = BTreeBook {
+            metadata: mock_metadata(),
+            events: Arc::new(RwLock::new(vec![Event {
+                timestamp,
+                kind: EventKind::Post(order.clone()),
+            }])),
+            bids: Arc::new(RwLock::new(BTreeMap::from_iter(vec![(
+                F64(12.00),
+                VecDeque::from_iter(vec![order.clone()]),
+            )]))),
+            asks: Arc::new(RwLock::new(BTreeMap::new())),
+            ltp: Arc::new(RwLock::new(None)),
+            depth: Arc::new(RwLock::new((10, Quantity::default()))),
         };
 
-        assert_eq!(actual_book, expected_book);
-        Ok(())
+        assert!(res.is_ok());
+        assert!(relaxed_structural_equal(actual_book, expected_book));
     }
 
     #[test]
-    fn test_submit_single_ask() -> Result<(), BookError> {
-        /* build account */
-        let account_id: AccountId = 1;
-        let account_name: String = "Account".to_string();
-        let account_balance: f64 = 12000.00;
-        let account_holdings: HashMap<String, u128> = HashMap::new();
-        let actual_account: Account = Account::new(
-            account_id,
-            account_name,
-            account_balance,
-            account_holdings,
-        );
+    fn test_submit_single_ask() {
+        let timestamp = Utc::now();
 
-        /* build order */
-        let order_id: OrderId = 1;
-        let order_owner: Account = actual_account;
-        let order_ticker: String = "BOOK".to_string();
-        let order_type: OrderKind = OrderKind::Ask;
-        let order_price: f64 = 12.00;
-        let order_quantity: u128 = 33;
-        let actual_order: Order = Order::new(
-            order_id,
-            order_owner,
-            order_ticker,
-            order_type,
-            order_price,
-            order_quantity,
-        );
-
-        /* build book */
-        let book_id: BookId = 1;
-        let book_name: String = "Book".to_string();
-        let book_ticker: String = "BOOK".to_string();
-        let mut actual_book: Book =
-            Book::new(book_id, book_name.clone(), book_ticker.clone());
-
-        /* we need to build this field of the expected book due to movement
-         * of values */
-        let mut expected_orders: HashMap<OrderId, Order> = HashMap::new();
-        expected_orders.insert(order_id, actual_order.clone());
-
-        /* submit order to book */
-        actual_book.submit(actual_order)?;
-
-        /* build expected fields */
-        let expected_bids: BTreeMap<OrderedFloat<f64>, VecDeque<&mut Order>> =
-            BTreeMap::new();
-
-        let mut cloned_expected_orders: HashMap<OrderId, Order> =
-            expected_orders.clone();
-        let mut expected_asks: BTreeMap<
-            OrderedFloat<f64>,
-            VecDeque<&mut Order>,
-        > = BTreeMap::new();
-        expected_asks.insert(
-            OrderedFloat::from(order_price),
-            VecDeque::from_iter(vec![cloned_expected_orders
-                .get_mut(&order_id)
-                .unwrap()]),
-        );
-
-        let expected_book: Book = Book {
-            id: book_id,
-            name: book_name.clone(),
-            ticker: book_ticker.clone(),
-            orders: expected_orders,
-            bids: expected_bids,
-            asks: expected_asks,
-            ltp: 0.00,
-            has_traded: false,
+        let order = PlainOrder {
+            id: 1,
+            kind: OrderKind::Ask,
+            price: 12.00,
+            quantity: 10,
+            created: timestamp,
+            modified: timestamp,
+            cancelled: None,
+        };
+        let mut actual_book: BTreeBook<PlainOrder> =
+            BTreeBook::meta(mock_metadata());
+        let res = actual_book.add(order.clone());
+        let expected_book = BTreeBook {
+            metadata: mock_metadata(),
+            events: Arc::new(RwLock::new(vec![Event {
+                timestamp,
+                kind: EventKind::Post(order.clone()),
+            }])),
+            bids: Arc::new(RwLock::new(BTreeMap::new())),
+            asks: Arc::new(RwLock::new(BTreeMap::from_iter(vec![(
+                F64(12.00),
+                VecDeque::from_iter(vec![order.clone()]),
+            )]))),
+            ltp: Arc::new(RwLock::new(None)),
+            depth: Arc::new(RwLock::new((Quantity::default(), 10))),
         };
 
-        assert_eq!(actual_book, expected_book);
-        Ok(())
+        assert!(res.is_ok());
+        assert!(relaxed_structural_equal(actual_book, expected_book));
+    }
+
+    fn relaxed_structural_equal<T>(
+        left: BTreeBook<T>,
+        right: BTreeBook<T>,
+    ) -> bool
+    where
+        T: Order,
+    {
+        left.metadata == right.metadata
+            && *left.bids.read().unwrap() == *right.bids.read().unwrap()
+            && *left.asks.read().unwrap() == *right.asks.read().unwrap()
+            && *left.ltp.read().unwrap() == *right.ltp.read().unwrap()
+            && *left.depth.read().unwrap() == *right.depth.read().unwrap()
+            && left
+                .events
+                .read()
+                .unwrap()
+                .iter()
+                .map(|ev| ev.kind.clone())
+                .collect::<Vec<EventKind<T>>>()
+                == right
+                    .events
+                    .read()
+                    .unwrap()
+                    .iter()
+                    .map(|ev| ev.kind.clone())
+                    .collect::<Vec<EventKind<T>>>()
     }
 }

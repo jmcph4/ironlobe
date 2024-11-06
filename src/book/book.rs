@@ -18,5 +18,6 @@ pub trait Book<T: Order>: Clone + Debug {
     fn cancel(&mut self, order_id: OrderId) -> Result<T, Self::Error>;
     fn ltp(&self) -> Option<Price>;
     fn depth(&self) -> (Quantity, Quantity);
-    fn top(&self) -> (Price, Price);
+    fn top(&self) -> (Option<Price>, Option<Price>);
+    fn crossed(&self) -> bool;
 }

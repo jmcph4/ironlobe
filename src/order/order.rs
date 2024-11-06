@@ -1,12 +1,13 @@
 use std::fmt::Debug;
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::common::{Price, Quantity};
 
 pub type OrderId = u128;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum OrderKind {
     Bid,
     Ask,
