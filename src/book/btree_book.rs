@@ -6,7 +6,7 @@ use eq_float::F64;
 use eyre::ErrReport;
 
 use crate::event::{EventKind, Match, MatchInfo};
-use crate::order::OrderKind;
+use crate::order::{OrderId, OrderKind};
 use crate::{
     book::Book,
     common::{Price, Quantity},
@@ -16,30 +16,36 @@ use crate::{
 
 use super::BookId;
 
-#[derive(Copy, Clone, Debug)]
-pub enum BookError {
-    OrderNotFound,
-    SideEmpty,
-    NoTrades,
-}
-
+/// Information about the market an order book represents
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Metadata {
-    id: u64,
+    /// A unique identifier for the book
+    id: BookId,
+    /// The human-readable name of the market
     name: String,
+    /// The abbreviated, human-readable identifier of the market
     ticker: String,
 }
 
+/// Limit order book where each side of the book is an ordered mapping (using
+/// B-trees) keyed on price
 #[derive(Clone, Debug)]
 pub struct BTreeBook<T: Order> {
+    /// Metadata for the market this book represents
     metadata: Metadata,
+    /// Event log for this book (describes all mutations)
     events: Arc<RwLock<Vec<Event<T>>>>,
+    /// Bid-side of the market
     bids: Arc<RwLock<BTreeMap<F64, VecDeque<T>>>>,
+    /// Ask-side of the market
     asks: Arc<RwLock<BTreeMap<F64, VecDeque<T>>>>,
+    /// Last Traded Price (LTP) of the book
     ltp: Arc<RwLock<Option<Price>>>,
+    /// Total volume on each side of the book
     depth: Arc<RwLock<(Quantity, Quantity)>>,
 }
 
+/* custom impl to introspect locks */
 impl<T> PartialEq for BTreeBook<T>
 where
     T: Order,
@@ -54,6 +60,7 @@ where
     }
 }
 
+/* see above */
 impl<T> Eq for BTreeBook<T> where T: Order {}
 
 impl<T> BTreeBook<T>
@@ -88,6 +95,7 @@ where
         }
     }
 
+    /// Given the price and side of the market, will an order cross the book?
     fn crosses(&self, price: Price, kind: OrderKind) -> bool {
         match kind {
             OrderKind::Bid => match self.top() {
@@ -101,6 +109,7 @@ where
         }
     }
 
+    /// Insert (post) an order to the book
     fn add_order(&mut self, order: T) {
         match order.kind() {
             OrderKind::Bid => {
@@ -147,7 +156,7 @@ where
         self.metadata.ticker.clone()
     }
 
-    fn order(&self, id: crate::order::OrderId) -> Option<T> {
+    fn order(&self, id: OrderId) -> Option<T> {
         self.bids
             .read()
             .unwrap()
@@ -168,7 +177,9 @@ where
 
         match order.kind() {
             OrderKind::Bid => {
-                for (level, orders) in self.asks.write().unwrap().iter_mut() {
+                for (level, orders) in
+                    self.asks.write().unwrap().iter_mut().rev()
+                {
                     if matched {
                         break;
                     }
@@ -307,7 +318,7 @@ mod tests {
     }
 
     #[test]
-    fn test_new() -> Result<(), BookError> {
+    fn test_new() {
         let actual_book: BTreeBook<PlainOrder> =
             BTreeBook::meta(mock_metadata());
         let expected_book = BTreeBook {
@@ -323,7 +334,6 @@ mod tests {
         };
 
         assert_eq!(actual_book, expected_book);
-        Ok(())
     }
 
     #[test]
@@ -396,6 +406,10 @@ mod tests {
         assert!(relaxed_structural_equal(actual_book, expected_book));
     }
 
+    /// Given two [`BTreeBook`]s, determine if they are equal ignoring
+    /// timestamps
+    ///
+    /// Specifically, ∀(l,r)∈(⟨Events_left⟩,⟨Events_right⟩),kind(l)==kind(r).
     fn relaxed_structural_equal<T>(
         left: BTreeBook<T>,
         right: BTreeBook<T>,
