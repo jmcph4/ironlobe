@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::fmt::Display;
 use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
@@ -62,6 +63,45 @@ where
 
 /* see above */
 impl<T> Eq for BTreeBook<T> where T: Order {}
+
+impl<T> Display for BTreeBook<T>
+where
+    T: Order,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let bids_lock = self.bids.read().unwrap();
+        let bids_iter = bids_lock.iter().rev().map(|(price, xs)| {
+            (price.0, xs.iter().map(|x| x.quantity()).sum::<Quantity>())
+        });
+        let asks_lock = self.asks.read().unwrap();
+        let asks_iter = asks_lock
+            .iter()
+            .map(|(price, xs)| {
+                (price.0, xs.iter().map(|x| x.quantity()).sum::<Quantity>())
+            })
+            .rev();
+        let bids: Vec<(Price, Quantity)> = bids_iter.collect();
+        let asks: Vec<(Price, Quantity)> = asks_iter.collect();
+
+        let col_width = 17;
+
+        for ask in asks {
+            writeln!(
+                f,
+                "{} | {:<8.2} {:<8.2}",
+                " ".repeat(col_width),
+                ask.0,
+                ask.1
+            )?;
+        }
+
+        for bid in bids {
+            writeln!(f, "{:8.2} {:8.2} |", bid.0, bid.1)?;
+        }
+
+        Ok(())
+    }
+}
 
 impl<T> BTreeBook<T>
 where

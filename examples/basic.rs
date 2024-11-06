@@ -23,7 +23,7 @@ fn main() -> eyre::Result<()> {
         }
 
         println!("{:?}", received_order);
-        println!("{:?}", book.top());
+        println!("{}", book);
     }
 
     Ok(())
