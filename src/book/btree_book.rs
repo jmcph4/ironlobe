@@ -205,8 +205,79 @@ where
         }
     }
 
-    fn remove_order(&mut self, order: &mut T) {
-        todo!()
+    fn r#match<'a>(
+        &mut self,
+        order: T,
+        opposing_side: impl Iterator<Item = (&'a F64, &'a mut VecDeque<T>)>,
+    ) where
+        T: 'a,
+    {
+        for (level, orders) in opposing_side {
+            let mut matched = false;
+            let mut quantity_remaining = order.quantity();
+            if matched {
+                break;
+            }
+            if *level <= F64(order.price()) {
+                for incumbent in orders {
+                    if quantity_remaining > 0 {
+                        quantity_remaining -= incumbent.quantity();
+                        if incumbent.quantity() >= quantity_remaining {
+                            self.events.write().unwrap().push(Event::new(
+                                EventKind::Match(Match::Full(MatchInfo {
+                                    incumbent: order.clone(),
+                                    others: vec![(
+                                        incumbent.clone(),
+                                        order.quantity(),
+                                    )],
+                                })),
+                            ))
+                        } else {
+                            self.events.write().unwrap().push(Event::new(
+                                EventKind::Match(Match::Full(MatchInfo {
+                                    incumbent: incumbent.clone(),
+                                    others: vec![(
+                                        order.clone(),
+                                        order.quantity(),
+                                    )],
+                                })),
+                            ));
+                            self.remove_order(incumbent.id());
+                        }
+                    } else {
+                        matched = true;
+                        break;
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn remove_order(&mut self, order_id: OrderId) {
+        if let Some((_, level)) = self
+            .bids
+            .write()
+            .unwrap()
+            .iter_mut()
+            .find(|(_, xs)| xs.iter().any(|x| x.id() == order_id))
+        {
+            level
+                .remove(level.iter().position(|x| x.id() == order_id).unwrap());
+        } else {
+            if let Some((_, level)) = self
+                .asks
+                .write()
+                .unwrap()
+                .iter_mut()
+                .find(|(_, xs)| xs.iter().any(|x| x.id() == order_id))
+            {
+                level.remove(
+                    level.iter().position(|x| x.id() == order_id).unwrap(),
+                );
+            }
+        }
     }
 }
 
@@ -238,117 +309,33 @@ where
             .cloned()
     }
 
-    fn add(&mut self, order: T) -> Result<T, Self::Error> {
+    fn add(&mut self, order: T) {
         if !self.crosses(order.price(), order.kind()) {
             self.add_order(order.clone());
-            return Ok(order);
-        }
-
-        let mut matched = false;
-        let mut quantity_remaining = order.quantity();
-
-        match order.kind() {
-            OrderKind::Bid => {
-                for (level, orders) in
-                    self.asks.write().unwrap().iter_mut().rev()
-                {
-                    if matched {
-                        break;
-                    }
-                    if *level <= F64(order.price()) {
-                        for incumbent in orders {
-                            if quantity_remaining > 0 {
-                                quantity_remaining -= incumbent.quantity();
-                                if incumbent.quantity() >= quantity_remaining {
-                                    self.events.write().unwrap().push(
-                                        Event::new(EventKind::Match(
-                                            Match::Full(MatchInfo {
-                                                incumbent: order.clone(),
-                                                others: vec![(
-                                                    incumbent.clone(),
-                                                    order.quantity(),
-                                                )],
-                                            }),
-                                        )),
-                                    )
-                                } else {
-                                    self.events.write().unwrap().push(
-                                        Event::new(EventKind::Match(
-                                            Match::Full(MatchInfo {
-                                                incumbent: incumbent.clone(),
-                                                others: vec![(
-                                                    order.clone(),
-                                                    order.quantity(),
-                                                )],
-                                            }),
-                                        )),
-                                    );
-                                    //self.remove_order(incumbent);
-                                }
-                            } else {
-                                matched = true;
-                                break;
-                            }
-                        }
-                    } else {
-                        break;
-                    }
+        } else {
+            match order.kind() {
+                OrderKind::Bid => {
+                    let asks = self.asks.clone();
+                    let mut lock = asks.write().unwrap();
+                    self.r#match(order, lock.iter_mut().rev());
                 }
-            }
-            OrderKind::Ask => {
-                for (level, orders) in self.asks.write().unwrap().iter_mut() {
-                    if matched {
-                        break;
-                    }
-                    if *level >= F64(order.price()) {
-                        for incumbent in orders {
-                            if quantity_remaining > 0 {
-                                quantity_remaining -= incumbent.quantity();
-                                if incumbent.quantity() >= quantity_remaining {
-                                    self.events.write().unwrap().push(
-                                        Event::new(EventKind::Match(
-                                            Match::Full(MatchInfo {
-                                                incumbent: order.clone(),
-                                                others: vec![(
-                                                    incumbent.clone(),
-                                                    order.quantity(),
-                                                )],
-                                            }),
-                                        )),
-                                    );
-                                } else {
-                                    self.events.write().unwrap().push(
-                                        Event::new(EventKind::Match(
-                                            Match::Full(MatchInfo {
-                                                incumbent: incumbent.clone(),
-                                                others: vec![(
-                                                    order.clone(),
-                                                    order.quantity(),
-                                                )],
-                                            }),
-                                        )),
-                                    );
-                                    //self.remove_order(incumbent);
-                                }
-                            } else {
-                                matched = true;
-                                break;
-                            }
-                        }
-                    } else {
-                        break;
-                    }
+                OrderKind::Ask => {
+                    let bids = self.bids.clone();
+                    let mut lock = bids.write().unwrap();
+                    self.r#match(order, lock.iter_mut().rev());
                 }
-            }
+            };
         }
-        Ok(order)
     }
 
-    fn cancel(
-        &mut self,
-        order_id: crate::order::OrderId,
-    ) -> Result<T, Self::Error> {
-        todo!()
+    fn cancel(&mut self, order_id: crate::order::OrderId) -> Option<T> {
+        let order = self.order(order_id)?;
+        self.events.write().unwrap().push(Event {
+            timestamp: Utc::now(),
+            kind: EventKind::Cancel(order.clone()),
+        });
+        self.remove_order(order_id);
+        Some(order)
     }
 
     fn ltp(&self) -> Option<Price> {
@@ -425,7 +412,7 @@ mod tests {
         };
         let mut actual_book: BTreeBook<PlainOrder> =
             BTreeBook::meta(mock_metadata());
-        let res = actual_book.add(order.clone());
+        actual_book.add(order.clone());
         let expected_book = BTreeBook {
             metadata: mock_metadata(),
             events: Arc::new(RwLock::new(vec![Event {
@@ -441,7 +428,6 @@ mod tests {
             depth: Arc::new(RwLock::new((10, Quantity::default()))),
         };
 
-        assert!(res.is_ok());
         assert!(relaxed_structural_equal(actual_book, expected_book));
     }
 
@@ -460,7 +446,7 @@ mod tests {
         };
         let mut actual_book: BTreeBook<PlainOrder> =
             BTreeBook::meta(mock_metadata());
-        let res = actual_book.add(order.clone());
+        actual_book.add(order.clone());
         let expected_book = BTreeBook {
             metadata: mock_metadata(),
             events: Arc::new(RwLock::new(vec![Event {
@@ -476,7 +462,6 @@ mod tests {
             depth: Arc::new(RwLock::new((Quantity::default(), 10))),
         };
 
-        assert!(res.is_ok());
         assert!(relaxed_structural_equal(actual_book, expected_book));
     }
 
@@ -507,9 +492,9 @@ mod tests {
 
         let mut actual_book: BTreeBook<PlainOrder> =
             BTreeBook::meta(mock_metadata());
-        let res1 = actual_book.add(bid.clone());
+        actual_book.add(bid.clone());
         assert!(actual_book.crosses(price, ask.kind()));
-        let res2 = actual_book.add(ask.clone());
+        actual_book.add(ask.clone());
         let expected_book = BTreeBook {
             metadata: mock_metadata(),
             events: Arc::new(RwLock::new(vec![
@@ -534,8 +519,6 @@ mod tests {
             ))),
         };
 
-        assert!(res1.is_ok());
-        assert!(res2.is_ok());
         assert!(relaxed_structural_equal(actual_book, expected_book));
     }
 

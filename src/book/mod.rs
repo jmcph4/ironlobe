@@ -16,8 +16,8 @@ pub trait Book<T: Order>: Clone + Debug {
     fn name(&self) -> String;
     fn ticker(&self) -> String;
     fn order(&self, id: OrderId) -> Option<T>;
-    fn add(&mut self, order: T) -> Result<T, Self::Error>;
-    fn cancel(&mut self, order_id: OrderId) -> Result<T, Self::Error>;
+    fn add(&mut self, order: T);
+    fn cancel(&mut self, order_id: OrderId) -> Option<T>;
     fn ltp(&self) -> Option<Price>;
     fn depth(&self) -> (Quantity, Quantity);
     fn top(&self) -> (Option<Price>, Option<Price>);

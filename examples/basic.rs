@@ -19,7 +19,6 @@ fn main() -> eyre::Result<()> {
 
     let mut book: BTreeBook<PlainOrder> =
         BTreeBook::new(1, "Basic".to_string(), "BAS".to_string());
-    let mut received_order = None;
 
     while let Some(Ok(line)) = stdin.lock().lines().next() {
         if line.trim() == "exit" {
@@ -27,11 +26,10 @@ fn main() -> eyre::Result<()> {
         }
 
         match serde_json::from_str(&line) {
-            Ok(order) => received_order = Some(book.add(order)?),
+            Ok(order) => book.add(order),
             Err(e) => println!("Malformed order JSON: {e:?}"),
         }
 
-        println!("{:?}", received_order);
         if opts.histogram {
             println!("{}", serde_json::to_string(&book.levels())?);
         } else {
