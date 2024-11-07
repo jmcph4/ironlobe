@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use chrono::Utc;
 use eq_float::F64;
 use eyre::ErrReport;
+use serde::{Deserialize, Serialize};
 
 use crate::event::{EventKind, Match, MatchInfo};
 use crate::order::{OrderId, OrderKind};
@@ -16,6 +17,12 @@ use crate::{
 };
 
 use super::BookId;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Levels {
+    pub bids: Vec<(Price, Quantity)>,
+    pub asks: Vec<(Price, Quantity)>,
+}
 
 /// Information about the market an order book represents
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -177,6 +184,25 @@ where
             timestamp: Utc::now(),
             kind: EventKind::Post(order.clone()),
         });
+    }
+
+    pub fn levels(&self) -> Levels {
+        Levels {
+            bids: self
+                .bids
+                .read()
+                .unwrap()
+                .iter()
+                .map(|(p, xs)| (p.0, xs.iter().map(|x| x.quantity()).sum()))
+                .collect(),
+            asks: self
+                .asks
+                .read()
+                .unwrap()
+                .iter()
+                .map(|(p, xs)| (p.0, xs.iter().map(|x| x.quantity()).sum()))
+                .collect(),
+        }
     }
 }
 
