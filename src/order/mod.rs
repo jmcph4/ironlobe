@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use arbitrary::Arbitrary;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +11,7 @@ pub use plain::*;
 
 pub type OrderId = u128;
 
-#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Arbitrary, Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum OrderKind {
     Bid,
     Ask,

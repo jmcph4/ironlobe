@@ -1,3 +1,4 @@
+use arbitrary::Arbitrary;
 use chrono::{DateTime, Utc};
 use eq_float::F64;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ use crate::common::{Price, Quantity};
 
 use super::{Order, OrderId, OrderKind};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Arbitrary, Clone, Debug, Deserialize, Serialize)]
 pub struct PlainOrder {
     pub id: OrderId,
     pub kind: OrderKind,

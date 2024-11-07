@@ -204,6 +204,10 @@ where
                 .collect(),
         }
     }
+
+    fn remove_order(&mut self, order: &mut T) {
+        todo!()
+    }
 }
 
 impl<T> Book<T> for BTreeBook<T>
@@ -278,7 +282,8 @@ where
                                                 )],
                                             }),
                                         )),
-                                    )
+                                    );
+                                    //self.remove_order(incumbent);
                                 }
                             } else {
                                 matched = true;
@@ -310,7 +315,7 @@ where
                                                 )],
                                             }),
                                         )),
-                                    )
+                                    );
                                 } else {
                                     self.events.write().unwrap().push(
                                         Event::new(EventKind::Match(
@@ -322,7 +327,8 @@ where
                                                 )],
                                             }),
                                         )),
-                                    )
+                                    );
+                                    //self.remove_order(incumbent);
                                 }
                             } else {
                                 matched = true;
@@ -474,6 +480,65 @@ mod tests {
         assert!(relaxed_structural_equal(actual_book, expected_book));
     }
 
+    #[test]
+    fn test_submit_matching_bid_ask() {
+        let timestamp = Utc::now();
+        let price = 12.00;
+        let quantity = 10;
+
+        let bid = PlainOrder {
+            id: 1,
+            kind: OrderKind::Bid,
+            price,
+            quantity,
+            created: timestamp,
+            modified: timestamp,
+            cancelled: None,
+        };
+        let ask = PlainOrder {
+            id: 1,
+            kind: OrderKind::Ask,
+            price,
+            quantity,
+            created: timestamp,
+            modified: timestamp,
+            cancelled: None,
+        };
+
+        let mut actual_book: BTreeBook<PlainOrder> =
+            BTreeBook::meta(mock_metadata());
+        let res1 = actual_book.add(bid.clone());
+        assert!(actual_book.crosses(price, ask.kind()));
+        let res2 = actual_book.add(ask.clone());
+        let expected_book = BTreeBook {
+            metadata: mock_metadata(),
+            events: Arc::new(RwLock::new(vec![
+                Event {
+                    timestamp,
+                    kind: EventKind::Post(bid.clone()),
+                },
+                Event {
+                    timestamp,
+                    kind: EventKind::Match(Match::Full(MatchInfo {
+                        incumbent: bid.clone(),
+                        others: vec![(ask.clone(), quantity)],
+                    })),
+                },
+            ])),
+            bids: Arc::new(RwLock::new(BTreeMap::new())),
+            asks: Arc::new(RwLock::new(BTreeMap::new())),
+            ltp: Arc::new(RwLock::new(Some(price))),
+            depth: Arc::new(RwLock::new((
+                Quantity::default(),
+                Quantity::default(),
+            ))),
+        };
+
+        assert!(res1.is_ok());
+        assert!(res2.is_ok());
+        assert!(relaxed_structural_equal(actual_book, expected_book));
+    }
+
     /// Given two [`BTreeBook`]s, determine if they are equal ignoring
     /// timestamps
     ///
@@ -485,6 +550,7 @@ mod tests {
     where
         T: Order,
     {
+        dbg!(&left.bids.read().unwrap().iter());
         left.metadata == right.metadata
             && *left.bids.read().unwrap() == *right.bids.read().unwrap()
             && *left.asks.read().unwrap() == *right.asks.read().unwrap()
