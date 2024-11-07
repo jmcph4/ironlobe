@@ -11,7 +11,9 @@ pub use plain::*;
 
 pub type OrderId = u128;
 
-#[derive(Arbitrary, Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(
+    Arbitrary, Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize,
+)]
 pub enum OrderKind {
     Bid,
     Ask,
