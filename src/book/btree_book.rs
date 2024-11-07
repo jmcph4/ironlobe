@@ -265,18 +265,15 @@ where
         {
             level
                 .remove(level.iter().position(|x| x.id() == order_id).unwrap());
-        } else {
-            if let Some((_, level)) = self
-                .asks
-                .write()
-                .unwrap()
-                .iter_mut()
-                .find(|(_, xs)| xs.iter().any(|x| x.id() == order_id))
-            {
-                level.remove(
-                    level.iter().position(|x| x.id() == order_id).unwrap(),
-                );
-            }
+        } else if let Some((_, level)) = self
+            .asks
+            .write()
+            .unwrap()
+            .iter_mut()
+            .find(|(_, xs)| xs.iter().any(|x| x.id() == order_id))
+        {
+            level
+                .remove(level.iter().position(|x| x.id() == order_id).unwrap());
         }
     }
 }
