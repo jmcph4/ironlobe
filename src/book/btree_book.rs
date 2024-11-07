@@ -212,17 +212,32 @@ where
     ) where
         T: 'a,
     {
+        let reduce_depth = |reduction| {
+            let curr_depth = *self.depth.read().unwrap();
+            match order.kind() {
+                OrderKind::Bid => {
+                    *self.depth.write().unwrap() =
+                        (curr_depth.0, curr_depth.1 - reduction)
+                }
+                OrderKind::Ask => {
+                    *self.depth.write().unwrap() =
+                        (curr_depth.0 - reduction, curr_depth.1)
+                }
+            }
+        };
+        let mut ltp = order.price();
+        let mut quantity_remaining = order.quantity();
+
         for (level, orders) in opposing_side {
-            let mut matched = false;
-            let mut quantity_remaining = order.quantity();
-            if matched {
+            if quantity_remaining == 0 {
                 break;
             }
             if *level <= F64(order.price()) {
-                for incumbent in orders {
+                while let Some(incumbent) = orders.pop_front() {
                     if quantity_remaining > 0 {
-                        quantity_remaining -= incumbent.quantity();
-                        if incumbent.quantity() >= quantity_remaining {
+                        let incumbent_quantity = incumbent.quantity();
+
+                        if incumbent_quantity > quantity_remaining {
                             self.events.write().unwrap().push(Event::new(
                                 EventKind::Match(Match::Full(MatchInfo {
                                     incumbent: order.clone(),
@@ -231,7 +246,7 @@ where
                                         order.quantity(),
                                     )],
                                 })),
-                            ))
+                            ));
                         } else {
                             self.events.write().unwrap().push(Event::new(
                                 EventKind::Match(Match::Full(MatchInfo {
@@ -242,10 +257,12 @@ where
                                     )],
                                 })),
                             ));
-                            self.remove_order(incumbent.id());
                         }
+
+                        quantity_remaining -= incumbent_quantity;
+                        ltp = incumbent.price();
+                        reduce_depth(incumbent_quantity);
                     } else {
-                        matched = true;
                         break;
                     }
                 }
@@ -253,27 +270,70 @@ where
                 break;
             }
         }
+        *self.ltp.write().unwrap() = Some(ltp);
+    }
+
+    fn prune(&self) {
+        let bid_lock = self.bids.read().unwrap();
+        dbg!("here");
+        let bid_keys: Vec<F64> = bid_lock
+            .iter()
+            .filter(|(_, xs)| xs.is_empty())
+            .map(|(p, _)| *p)
+            .collect();
+        drop(bid_lock);
+        let ask_lock = self.asks.read().unwrap();
+        let ask_keys: Vec<F64> = ask_lock
+            .iter()
+            .filter(|(_, xs)| xs.is_empty())
+            .map(|(p, _)| *p)
+            .collect();
+        drop(ask_lock);
+
+        bid_keys.iter().for_each(|p| {
+            self.bids.write().unwrap().remove(p);
+        });
+        ask_keys.iter().for_each(|p| {
+            self.asks.write().unwrap().remove(p);
+        });
     }
 
     fn remove_order(&mut self, order_id: OrderId) {
-        if let Some((_, level)) = self
-            .bids
-            .write()
-            .unwrap()
-            .iter_mut()
-            .find(|(_, xs)| xs.iter().any(|x| x.id() == order_id))
-        {
-            level
-                .remove(level.iter().position(|x| x.id() == order_id).unwrap());
-        } else if let Some((_, level)) = self
-            .asks
-            .write()
-            .unwrap()
-            .iter_mut()
-            .find(|(_, xs)| xs.iter().any(|x| x.id() == order_id))
-        {
-            level
-                .remove(level.iter().position(|x| x.id() == order_id).unwrap());
+        let bid_lock = self.bids.read().unwrap();
+        let bid_pos: Vec<(F64, usize)> = bid_lock
+            .iter()
+            .map(|(price, level)| {
+                (price, level.iter().position(|x| x.id() == order_id))
+            })
+            .filter(|(_, pos)| pos.is_some())
+            .map(|(price, pos)| (*price, pos.unwrap()))
+            .collect();
+        drop(bid_lock);
+        if let Some(bid) = bid_pos.first() {
+            self.bids
+                .write()
+                .unwrap()
+                .get_mut(&bid.0)
+                .unwrap()
+                .remove(bid.1);
+        }
+
+        let ask_lock = self.asks.read().unwrap();
+        let ask_pos: Vec<(&F64, usize)> = ask_lock
+            .iter()
+            .map(|(price, level)| {
+                (price, level.iter().position(|x| x.id() == order_id))
+            })
+            .filter(|(_, pos)| pos.is_some())
+            .map(|(price, pos)| (price, pos.unwrap()))
+            .collect();
+        if let Some(ask) = ask_pos.first() {
+            self.asks
+                .write()
+                .unwrap()
+                .get_mut(ask.0)
+                .unwrap()
+                .remove(ask.1);
         }
     }
 }
@@ -322,6 +382,7 @@ where
                     self.r#match(order, lock.iter_mut().rev());
                 }
             };
+            self.prune();
         }
     }
 
@@ -478,7 +539,7 @@ mod tests {
             cancelled: None,
         };
         let ask = PlainOrder {
-            id: 1,
+            id: 2,
             kind: OrderKind::Ask,
             price,
             quantity,
@@ -516,6 +577,8 @@ mod tests {
             ))),
         };
 
+        dbg!(&actual_book);
+
         assert!(relaxed_structural_equal(actual_book, expected_book));
     }
 
@@ -530,7 +593,6 @@ mod tests {
     where
         T: Order,
     {
-        dbg!(&left.bids.read().unwrap().iter());
         left.metadata == right.metadata
             && *left.bids.read().unwrap() == *right.bids.read().unwrap()
             && *left.asks.read().unwrap() == *right.asks.read().unwrap()
