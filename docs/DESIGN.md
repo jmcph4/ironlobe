@@ -33,7 +33,7 @@ Additionally, `BTreeBook` stores an event log which logs fills, posts, and cance
 When considering insertion into the book specifically, there are two cases:
 
  - Price level already exists, so $\mathcal{O}\left(1\right)$ as
-    - Retrieval from the B-tree store ($\mathcal{O}\left(1\right)$)
+    - Retrieval from the B-tree store, $\mathcal{O}\left(1\right)$
     - Insertion into the deque, $\mathcal{O}\left(1\right)$
  - Price level does not already exist, so $\mathcal{O}\left(\log{n}\right)$ as
     - Insertion into the B-tree store, $\mathcal{O}\left(\log{n}\right)$
