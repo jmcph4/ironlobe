@@ -34,10 +34,10 @@ When considering insertion into the book specifically, there are two cases:
 
  - Price level already exists, so $\mathcal{O}\left(1\right)$ as
     - Retrieval from the B-tree store ($\mathcal{O}\left(1\right)$)
-    - Insertion into the deque ($\mathcal{O}\left(1\right)$)
+    - Insertion into the deque, $\mathcal{O}\left(1\right)$
  - Price level does not already exist, so $\mathcal{O}\left(\log{n}\right)$ as
-    - Insertion into the B-tree store ($\mathcal{O}\left(\log{n}\right)$)
-    - Insertion into the deque ($\mathcal{O}\left(1\right)$)
+    - Insertion into the B-tree store, $\mathcal{O}\left(\log{n}\right)$
+    - Insertion into the deque, $\mathcal{O}\left(1\right)$
 
 Note that submitting an order to the book (i.e., via `Book<T>::add`) is not purely insertion. This is obvious because if the order crosses the spread then matching will occur (this may result in an eventual insertion but will involve multiple retrievals and possibly deletions).
 
