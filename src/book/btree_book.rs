@@ -28,11 +28,11 @@ pub struct Levels {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Metadata {
     /// A unique identifier for the book
-    id: BookId,
+    pub id: BookId,
     /// The human-readable name of the market
-    name: String,
+    pub name: String,
     /// The abbreviated, human-readable identifier of the market
-    ticker: String,
+    pub ticker: String,
 }
 
 /// Limit order book where each side of the book is an ordered mapping (using
@@ -275,7 +275,6 @@ where
 
     fn prune(&self) {
         let bid_lock = self.bids.read().unwrap();
-        dbg!("here");
         let bid_keys: Vec<F64> = bid_lock
             .iter()
             .filter(|(_, xs)| xs.is_empty())
@@ -576,8 +575,6 @@ mod tests {
                 Quantity::default(),
             ))),
         };
-
-        dbg!(&actual_book);
 
         assert!(relaxed_structural_equal(actual_book, expected_book));
     }
