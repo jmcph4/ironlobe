@@ -49,6 +49,10 @@ impl Order for PlainOrder {
         self.quantity
     }
 
+    fn quantity_mut(&mut self) -> &mut crate::common::Quantity {
+        &mut self.quantity
+    }
+
     fn created_at(&self) -> chrono::DateTime<chrono::Utc> {
         self.created
     }

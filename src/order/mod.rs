@@ -24,6 +24,7 @@ pub trait Order: Clone + Debug + Eq + PartialEq {
     fn kind(&self) -> OrderKind;
     fn price(&self) -> Price;
     fn quantity(&self) -> Quantity;
+    fn quantity_mut(&mut self) -> &mut Quantity;
     fn created_at(&self) -> DateTime<Utc>;
     fn modified_at(&self) -> DateTime<Utc>;
     fn cancelled_at(&self) -> Option<DateTime<Utc>>;

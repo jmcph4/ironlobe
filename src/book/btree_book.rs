@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Display;
 use std::sync::{Arc, RwLock};
@@ -51,6 +52,7 @@ pub struct BTreeBook<T: Order> {
     ltp: Arc<RwLock<Option<Price>>>,
     /// Total volume on each side of the book
     depth: Arc<RwLock<(Quantity, Quantity)>>,
+    removals: Arc<RwLock<Vec<OrderId>>>,
 }
 
 /* custom impl to introspect locks */
@@ -127,6 +129,7 @@ where
                 Quantity::default(),
                 Quantity::default(),
             ))),
+            removals: Arc::new(RwLock::new(vec![])),
         }
     }
 
@@ -141,6 +144,7 @@ where
                 Quantity::default(),
                 Quantity::default(),
             ))),
+            removals: Arc::new(RwLock::new(vec![])),
         }
     }
 
@@ -233,35 +237,64 @@ where
                 break;
             }
             if *level <= F64(order.price()) {
-                while let Some(incumbent) = orders.pop_front() {
+                while let Some(incumbent) = orders.iter_mut().next() {
                     if quantity_remaining > 0 {
                         let incumbent_quantity = incumbent.quantity();
 
-                        if incumbent_quantity > quantity_remaining {
-                            self.events.write().unwrap().push(Event::new(
-                                EventKind::Match(Match::Full(MatchInfo {
-                                    incumbent: order.clone(),
-                                    others: vec![(
-                                        incumbent.clone(),
-                                        order.quantity(),
-                                    )],
-                                })),
-                            ));
-                        } else {
-                            self.events.write().unwrap().push(Event::new(
-                                EventKind::Match(Match::Full(MatchInfo {
-                                    incumbent: incumbent.clone(),
-                                    others: vec![(
-                                        order.clone(),
-                                        order.quantity(),
-                                    )],
-                                })),
-                            ));
+                        match incumbent_quantity.cmp(&quantity_remaining) {
+                            Ordering::Greater => {
+                                self.events.write().unwrap().push(Event::new(
+                                    EventKind::Match(Match::Partial(
+                                        MatchInfo {
+                                            incumbent: incumbent.clone(),
+                                            others: vec![(
+                                                order.clone(),
+                                                order.quantity(),
+                                            )],
+                                        },
+                                    )),
+                                ));
+                                *incumbent.quantity_mut() -= order.quantity();
+                                quantity_remaining = 0;
+                                reduce_depth(order.quantity());
+                            }
+                            Ordering::Equal => {
+                                self.events.write().unwrap().push(Event::new(
+                                    EventKind::Match(Match::Full(MatchInfo {
+                                        incumbent: incumbent.clone(),
+                                        others: vec![(
+                                            order.clone(),
+                                            order.quantity(),
+                                        )],
+                                    })),
+                                ));
+                                quantity_remaining -= incumbent_quantity;
+                                reduce_depth(incumbent_quantity);
+                                self.removals
+                                    .write()
+                                    .unwrap()
+                                    .push(incumbent.id());
+                            }
+                            Ordering::Less => {
+                                self.events.write().unwrap().push(Event::new(
+                                    EventKind::Match(Match::Full(MatchInfo {
+                                        incumbent: incumbent.clone(),
+                                        others: vec![(
+                                            order.clone(),
+                                            order.quantity(),
+                                        )],
+                                    })),
+                                ));
+                                self.removals
+                                    .write()
+                                    .unwrap()
+                                    .push(incumbent.id());
+                                quantity_remaining -= incumbent_quantity;
+                                reduce_depth(incumbent_quantity);
+                            }
                         }
 
-                        quantity_remaining -= incumbent_quantity;
                         ltp = incumbent.price();
-                        reduce_depth(incumbent_quantity);
                     } else {
                         break;
                     }
@@ -273,7 +306,12 @@ where
         *self.ltp.write().unwrap() = Some(ltp);
     }
 
-    fn prune(&self) {
+    fn prune(&mut self) {
+        // remove all orders marked for deletion
+        let removals = self.removals.read().unwrap().clone();
+        removals.iter().for_each(|oid| self.remove_order(*oid));
+        self.removals.write().unwrap().clear();
+
         let bid_lock = self.bids.read().unwrap();
         let bid_keys: Vec<F64> = bid_lock
             .iter()
@@ -449,6 +487,7 @@ mod tests {
                 Quantity::default(),
                 Quantity::default(),
             ))),
+            removals: Arc::new(RwLock::new(vec![])),
         };
 
         assert_eq!(actual_book, expected_book);
@@ -483,9 +522,15 @@ mod tests {
             asks: Arc::new(RwLock::new(BTreeMap::new())),
             ltp: Arc::new(RwLock::new(None)),
             depth: Arc::new(RwLock::new((10, Quantity::default()))),
+            removals: Arc::new(RwLock::new(vec![])),
         };
 
-        assert!(relaxed_structural_equal(actual_book, expected_book));
+        assert!(check_metadata(&actual_book, &expected_book));
+        assert!(check_bids(&actual_book, &expected_book));
+        assert!(check_asks(&actual_book, &expected_book));
+        assert!(check_ltp(&actual_book, &expected_book));
+        assert!(check_depth(&actual_book, &expected_book));
+        assert!(check_event_logs(&actual_book, &expected_book));
     }
 
     #[test]
@@ -517,9 +562,15 @@ mod tests {
             )]))),
             ltp: Arc::new(RwLock::new(None)),
             depth: Arc::new(RwLock::new((Quantity::default(), 10))),
+            removals: Arc::new(RwLock::new(vec![])),
         };
 
-        assert!(relaxed_structural_equal(actual_book, expected_book));
+        assert!(check_metadata(&actual_book, &expected_book));
+        assert!(check_bids(&actual_book, &expected_book));
+        assert!(check_asks(&actual_book, &expected_book));
+        assert!(check_ltp(&actual_book, &expected_book));
+        assert!(check_depth(&actual_book, &expected_book));
+        assert!(check_event_logs(&actual_book, &expected_book));
     }
 
     #[test]
@@ -574,40 +625,140 @@ mod tests {
                 Quantity::default(),
                 Quantity::default(),
             ))),
+            removals: Arc::new(RwLock::new(vec![])),
         };
 
-        assert!(relaxed_structural_equal(actual_book, expected_book));
+        assert!(check_metadata(&actual_book, &expected_book));
+        assert!(check_bids(&actual_book, &expected_book));
+        assert!(check_asks(&actual_book, &expected_book));
+        assert!(check_ltp(&actual_book, &expected_book));
+        assert!(check_depth(&actual_book, &expected_book));
+        assert!(check_event_logs(&actual_book, &expected_book));
     }
 
-    /// Given two [`BTreeBook`]s, determine if they are equal ignoring
-    /// timestamps
-    ///
-    /// Specifically, ∀(l,r)∈(⟨Events_left⟩,⟨Events_right⟩),kind(l)==kind(r).
-    fn relaxed_structural_equal<T>(
-        left: BTreeBook<T>,
-        right: BTreeBook<T>,
-    ) -> bool
+    #[test]
+    fn test_submit_partially_matching_bid_ask() {
+        let timestamp = Utc::now();
+        let price = 12.00;
+        let bid_quantity = 100;
+        let ask_quantity = 12;
+
+        let bid = PlainOrder {
+            id: 1,
+            kind: OrderKind::Bid,
+            price,
+            quantity: bid_quantity,
+            created: timestamp,
+            modified: timestamp,
+            cancelled: None,
+        };
+        let ask = PlainOrder {
+            id: 2,
+            kind: OrderKind::Ask,
+            price,
+            quantity: ask_quantity,
+            created: timestamp,
+            modified: timestamp,
+            cancelled: None,
+        };
+
+        let mut actual_book: BTreeBook<PlainOrder> =
+            BTreeBook::meta(mock_metadata());
+        actual_book.add(bid.clone());
+        assert!(actual_book.crosses(price, ask.kind()));
+        actual_book.add(ask.clone());
+        let expected_book = BTreeBook {
+            metadata: mock_metadata(),
+            events: Arc::new(RwLock::new(vec![
+                Event {
+                    timestamp,
+                    kind: EventKind::Post(bid.clone()),
+                },
+                Event {
+                    timestamp,
+                    kind: EventKind::Match(Match::Partial(MatchInfo {
+                        incumbent: bid.clone(),
+                        others: vec![(ask.clone(), ask_quantity)],
+                    })),
+                },
+            ])),
+            bids: Arc::new(RwLock::new(BTreeMap::from_iter(vec![(
+                F64(price),
+                VecDeque::from_iter(vec![{
+                    let mut orig = bid.clone();
+                    *orig.quantity_mut() = bid_quantity - ask_quantity;
+                    orig
+                }]),
+            )]))),
+            asks: Arc::new(RwLock::new(BTreeMap::new())),
+            ltp: Arc::new(RwLock::new(Some(price))),
+            depth: Arc::new(RwLock::new((
+                bid_quantity - ask_quantity,
+                Quantity::default(),
+            ))),
+            removals: Arc::new(RwLock::new(vec![])),
+        };
+
+        assert!(check_metadata(&actual_book, &expected_book));
+        assert!(check_bids(&actual_book, &expected_book));
+        assert!(check_asks(&actual_book, &expected_book));
+        assert!(check_ltp(&actual_book, &expected_book));
+        assert!(check_depth(&actual_book, &expected_book));
+        assert!(check_event_logs(&actual_book, &expected_book));
+    }
+
+    /// ∀(l,r)∈(⟨left⟩,⟨right⟩),kind(l)==kind(r).
+    fn check_event_logs<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
     where
         T: Order,
     {
-        left.metadata == right.metadata
-            && *left.bids.read().unwrap() == *right.bids.read().unwrap()
-            && *left.asks.read().unwrap() == *right.asks.read().unwrap()
-            && *left.ltp.read().unwrap() == *right.ltp.read().unwrap()
-            && *left.depth.read().unwrap() == *right.depth.read().unwrap()
-            && left
+        left.events
+            .read()
+            .unwrap()
+            .iter()
+            .map(|ev| ev.kind.clone())
+            .collect::<Vec<EventKind<T>>>()
+            == right
                 .events
                 .read()
                 .unwrap()
                 .iter()
                 .map(|ev| ev.kind.clone())
                 .collect::<Vec<EventKind<T>>>()
-                == right
-                    .events
-                    .read()
-                    .unwrap()
-                    .iter()
-                    .map(|ev| ev.kind.clone())
-                    .collect::<Vec<EventKind<T>>>()
+    }
+
+    fn check_depth<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
+    where
+        T: Order,
+    {
+        *left.depth.read().unwrap() == *right.depth.read().unwrap()
+    }
+
+    fn check_ltp<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
+    where
+        T: Order,
+    {
+        *left.ltp.read().unwrap() == *right.ltp.read().unwrap()
+    }
+
+    fn check_bids<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
+    where
+        T: Order,
+    {
+        *left.bids.read().unwrap() == *right.bids.read().unwrap()
+    }
+
+    fn check_asks<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
+    where
+        T: Order,
+    {
+        *left.asks.read().unwrap() == *right.asks.read().unwrap()
+    }
+
+    fn check_metadata<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
+    where
+        T: Order,
+    {
+        left.metadata == right.metadata
     }
 }
