@@ -65,6 +65,21 @@ fn benchmark_10000(c: &mut Criterion) {
     });
 }
 
+fn benchmark_100000(c: &mut Criterion) {
+    let orders = make_orders(black_box(100000));
+
+    c.bench_function("insert 100000", |b| {
+        b.iter(|| {
+            let mut book = BTreeBook::meta(Metadata {
+                id: 1,
+                name: "Benchmark Book".to_string(),
+                ticker: "BENCH".to_string(),
+            });
+            insert_into_book(&orders, &mut book)
+        })
+    });
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(std::time::Duration::from_secs(SAMPLE_SECS))
@@ -73,6 +88,6 @@ fn configure_criterion() -> Criterion {
 criterion_group! {
     name = benches;
     config = configure_criterion();
-    targets = benchmark_1000, benchmark_10000,
+    targets = benchmark_1000, benchmark_10000, benchmark_100000
 }
 criterion_main!(benches);
