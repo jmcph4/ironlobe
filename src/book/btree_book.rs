@@ -707,6 +707,94 @@ mod tests {
         assert!(check_event_logs(&actual_book, &expected_book));
     }
 
+    #[test]
+    fn test_submit_partially_matching_bid_ask_bid() {
+        let timestamp = Utc::now();
+        let price = 12.00;
+        let bid_quantity = 100;
+        let ask_quantity = 12;
+
+        let bid1 = PlainOrder {
+            id: 1,
+            kind: OrderKind::Bid,
+            price,
+            quantity: bid_quantity,
+            created: timestamp,
+            modified: timestamp,
+            cancelled: None,
+        };
+        let ask = PlainOrder {
+            id: 2,
+            kind: OrderKind::Ask,
+            price,
+            quantity: ask_quantity,
+            created: timestamp,
+            modified: timestamp,
+            cancelled: None,
+        };
+        let bid2 = PlainOrder {
+            id: 1,
+            kind: OrderKind::Bid,
+            price,
+            quantity: bid_quantity,
+            created: timestamp,
+            modified: timestamp,
+            cancelled: None,
+        };
+
+        let mut actual_book: BTreeBook<PlainOrder> =
+            BTreeBook::meta(mock_metadata());
+        actual_book.add(bid1.clone());
+        assert!(actual_book.crosses(price, ask.kind()));
+        actual_book.add(ask.clone());
+        actual_book.add(bid2.clone());
+        let expected_book = BTreeBook {
+            metadata: mock_metadata(),
+            events: Arc::new(RwLock::new(vec![
+                Event {
+                    timestamp,
+                    kind: EventKind::Post(bid1.clone()),
+                },
+                Event {
+                    timestamp,
+                    kind: EventKind::Match(Match::Partial(MatchInfo {
+                        incumbent: bid1.clone(),
+                        others: vec![(ask.clone(), ask_quantity)],
+                    })),
+                },
+                Event {
+                    timestamp,
+                    kind: EventKind::Post(bid2.clone()),
+                },
+            ])),
+            bids: Arc::new(RwLock::new(BTreeMap::from_iter(vec![(
+                F64(price),
+                VecDeque::from_iter(vec![
+                    {
+                        let mut orig = bid1.clone();
+                        *orig.quantity_mut() = bid_quantity - ask_quantity;
+                        orig
+                    },
+                    bid2.clone(),
+                ]),
+            )]))),
+            asks: Arc::new(RwLock::new(BTreeMap::new())),
+            ltp: Arc::new(RwLock::new(Some(price))),
+            depth: Arc::new(RwLock::new((
+                bid_quantity - ask_quantity + bid_quantity,
+                Quantity::default(),
+            ))),
+            removals: Arc::new(RwLock::new(vec![])),
+        };
+
+        assert!(check_metadata(&actual_book, &expected_book));
+        assert!(check_bids(&actual_book, &expected_book));
+        assert!(check_asks(&actual_book, &expected_book));
+        assert!(check_ltp(&actual_book, &expected_book));
+        assert!(check_depth(&actual_book, &expected_book));
+        assert!(check_event_logs(&actual_book, &expected_book));
+    }
+
     /// ∀(l,r)∈(⟨left⟩,⟨right⟩),kind(l)==kind(r).
     fn check_event_logs<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
     where
