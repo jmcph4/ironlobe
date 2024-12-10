@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Display;
-use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
 use eq_float::F64;
@@ -38,52 +37,32 @@ pub struct Metadata {
 
 /// Limit order book where each side of the book is an ordered mapping (using
 /// B-trees) keyed on price
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BTreeBook<T: Order> {
     /// Metadata for the market this book represents
     metadata: Metadata,
     /// Event log for this book (describes all mutations)
-    events: Arc<RwLock<Vec<Event<T>>>>,
+    events: Vec<Event<T>>,
     /// Bid-side of the market
-    bids: Arc<RwLock<BTreeMap<F64, VecDeque<T>>>>,
+    bids: BTreeMap<F64, VecDeque<T>>,
     /// Ask-side of the market
-    asks: Arc<RwLock<BTreeMap<F64, VecDeque<T>>>>,
+    asks: BTreeMap<F64, VecDeque<T>>,
     /// Last Traded Price (LTP) of the book
-    ltp: Arc<RwLock<Option<Price>>>,
+    ltp: Option<F64>,
     /// Total volume on each side of the book
-    depth: Arc<RwLock<(Quantity, Quantity)>>,
-    removals: Arc<RwLock<Vec<OrderId>>>,
+    depth: (Quantity, Quantity),
 }
-
-/* custom impl to introspect locks */
-impl<T> PartialEq for BTreeBook<T>
-where
-    T: Order,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.metadata == other.metadata
-            && *self.events.read().unwrap() == *other.events.read().unwrap()
-            && *self.bids.read().unwrap() == *other.bids.read().unwrap()
-            && *self.asks.read().unwrap() == *other.asks.read().unwrap()
-            && *self.ltp.read().unwrap() == *other.ltp.read().unwrap()
-            && *self.depth.read().unwrap() == *other.depth.read().unwrap()
-    }
-}
-
-/* see above */
-impl<T> Eq for BTreeBook<T> where T: Order {}
 
 impl<T> Display for BTreeBook<T>
 where
     T: Order,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let bids_lock = self.bids.read().unwrap();
-        let bids_iter = bids_lock.iter().rev().map(|(price, xs)| {
+        let bids_iter = self.bids.iter().rev().map(|(price, xs)| {
             (price.0, xs.iter().map(|x| x.quantity()).sum::<Quantity>())
         });
-        let asks_lock = self.asks.read().unwrap();
-        let asks_iter = asks_lock
+        let asks_iter = self
+            .asks
             .iter()
             .map(|(price, xs)| {
                 (price.0, xs.iter().map(|x| x.quantity()).sum::<Quantity>())
@@ -119,32 +98,24 @@ where
     T: Order,
 {
     pub fn new(id: BookId, name: String, ticker: String) -> Self {
-        BTreeBook {
+        Self {
             metadata: Metadata { id, name, ticker },
-            events: Arc::new(RwLock::new(vec![])),
-            bids: Arc::new(RwLock::new(BTreeMap::new())),
-            asks: Arc::new(RwLock::new(BTreeMap::new())),
-            ltp: Arc::new(RwLock::new(None)),
-            depth: Arc::new(RwLock::new((
-                Quantity::default(),
-                Quantity::default(),
-            ))),
-            removals: Arc::new(RwLock::new(vec![])),
+            events: vec![],
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
+            ltp: None,
+            depth: (0, 0),
         }
     }
 
     pub fn meta(metadata: Metadata) -> Self {
-        BTreeBook {
+        Self {
             metadata,
-            events: Arc::new(RwLock::new(vec![])),
-            bids: Arc::new(RwLock::new(BTreeMap::new())),
-            asks: Arc::new(RwLock::new(BTreeMap::new())),
-            ltp: Arc::new(RwLock::new(None)),
-            depth: Arc::new(RwLock::new((
-                Quantity::default(),
-                Quantity::default(),
-            ))),
-            removals: Arc::new(RwLock::new(vec![])),
+            events: vec![],
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
+            ltp: None,
+            depth: (0, 0),
         }
     }
 
@@ -167,24 +138,20 @@ where
         match order.kind() {
             OrderKind::Bid => {
                 self.bids
-                    .write()
-                    .unwrap()
                     .entry(F64(order.price()))
                     .or_insert_with(|| VecDeque::from_iter(vec![]))
                     .push_back(order.clone());
-                self.depth.write().unwrap().0 += order.quantity();
+                self.depth.0 += order.quantity();
             }
             OrderKind::Ask => {
                 self.asks
-                    .write()
-                    .unwrap()
                     .entry(F64(order.price()))
                     .or_insert_with(|| VecDeque::from_iter(vec![]))
                     .push_back(order.clone());
-                self.depth.write().unwrap().1 += order.quantity();
+                self.depth.1 += order.quantity();
             }
         }
-        self.events.write().unwrap().push(Event {
+        self.events.push(Event {
             timestamp: Utc::now(),
             kind: EventKind::Post(order.clone()),
         });
@@ -194,41 +161,36 @@ where
         Levels {
             bids: self
                 .bids
-                .read()
-                .unwrap()
                 .iter()
                 .map(|(p, xs)| (p.0, xs.iter().map(|x| x.quantity()).sum()))
                 .collect(),
             asks: self
                 .asks
-                .read()
-                .unwrap()
                 .iter()
                 .map(|(p, xs)| (p.0, xs.iter().map(|x| x.quantity()).sum()))
                 .collect(),
         }
     }
 
-    fn r#match<'a>(
-        &mut self,
-        order: T,
-        opposing_side: impl Iterator<Item = (&'a F64, &'a mut VecDeque<T>)>,
-    ) where
-        T: 'a,
-    {
-        let reduce_depth = |reduction| {
-            let curr_depth = *self.depth.read().unwrap();
-            match order.kind() {
-                OrderKind::Bid => {
-                    *self.depth.write().unwrap() =
-                        (curr_depth.0, curr_depth.1 - reduction)
-                }
-                OrderKind::Ask => {
-                    *self.depth.write().unwrap() =
-                        (curr_depth.0 - reduction, curr_depth.1)
-                }
-            }
-        };
+    fn reduce_depth(
+        depth: &mut (Quantity, Quantity),
+        reduction: u64,
+        kind: OrderKind,
+    ) {
+        match kind {
+            OrderKind::Bid => *depth = (depth.0, depth.1 - reduction),
+            OrderKind::Ask => *depth = (depth.0 - reduction, depth.1),
+        }
+    }
+
+    fn r#match(&mut self, order: T) {
+        let opposing_kind = order.kind().opposite();
+        let opposing_side: Box<dyn Iterator<Item = (&F64, &mut VecDeque<T>)>> =
+            match opposing_kind {
+                OrderKind::Bid => Box::new(self.bids.iter_mut()),
+                OrderKind::Ask => Box::new(self.asks.iter_mut().rev()),
+            };
+
         let mut ltp = order.price();
         let mut quantity_remaining = order.quantity();
 
@@ -243,54 +205,58 @@ where
 
                         match incumbent_quantity.cmp(&quantity_remaining) {
                             Ordering::Greater => {
-                                self.events.write().unwrap().push(Event::new(
-                                    EventKind::Match(Match::Partial(
-                                        MatchInfo {
-                                            incumbent: incumbent.clone(),
-                                            others: vec![(
-                                                order.clone(),
-                                                order.quantity(),
-                                            )],
-                                        },
-                                    )),
-                                ));
+                                self.events.push(Event::new(EventKind::Match(
+                                    Match::Partial(MatchInfo {
+                                        incumbent: incumbent.clone(),
+                                        others: vec![(
+                                            order.clone(),
+                                            order.quantity(),
+                                        )],
+                                    }),
+                                )));
                                 *incumbent.quantity_mut() -= order.quantity();
                                 quantity_remaining = 0;
-                                reduce_depth(order.quantity());
+                                Self::reduce_depth(
+                                    &mut self.depth,
+                                    order.quantity(),
+                                    order.kind(),
+                                );
                             }
                             Ordering::Equal => {
-                                self.events.write().unwrap().push(Event::new(
-                                    EventKind::Match(Match::Full(MatchInfo {
+                                self.events.push(Event::new(EventKind::Match(
+                                    Match::Full(MatchInfo {
                                         incumbent: incumbent.clone(),
                                         others: vec![(
                                             order.clone(),
                                             order.quantity(),
                                         )],
-                                    })),
-                                ));
+                                    }),
+                                )));
                                 quantity_remaining -= incumbent_quantity;
-                                reduce_depth(incumbent_quantity);
-                                self.removals
-                                    .write()
-                                    .unwrap()
-                                    .push(incumbent.id());
+                                Self::reduce_depth(
+                                    &mut self.depth,
+                                    incumbent_quantity,
+                                    order.kind(),
+                                );
+                                self.remove_order(incumbent.id());
                             }
                             Ordering::Less => {
-                                self.events.write().unwrap().push(Event::new(
-                                    EventKind::Match(Match::Full(MatchInfo {
+                                self.events.push(Event::new(EventKind::Match(
+                                    Match::Full(MatchInfo {
                                         incumbent: incumbent.clone(),
                                         others: vec![(
                                             order.clone(),
                                             order.quantity(),
                                         )],
-                                    })),
-                                ));
-                                self.removals
-                                    .write()
-                                    .unwrap()
-                                    .push(incumbent.id());
+                                    }),
+                                )));
                                 quantity_remaining -= incumbent_quantity;
-                                reduce_depth(incumbent_quantity);
+                                Self::reduce_depth(
+                                    &mut self.depth,
+                                    incumbent_quantity,
+                                    order.kind(),
+                                );
+                                self.remove_order(incumbent.id());
                             }
                         }
 
@@ -303,75 +269,37 @@ where
                 break;
             }
         }
-        *self.ltp.write().unwrap() = Some(ltp);
+        self.ltp = Some(F64(ltp));
     }
 
-    fn prune(&mut self) {
-        // remove all orders marked for deletion
-        let removals = self.removals.read().unwrap().clone();
-        removals.iter().for_each(|oid| self.remove_order(*oid));
-        self.removals.write().unwrap().clear();
+    fn remove_order_from_side(
+        btree: &mut BTreeMap<F64, VecDeque<T>>,
+        order_id: OrderId,
+    ) {
+        // Collect keys whose VecDeque becomes empty after removal.
+        let mut empty_keys = Vec::new();
 
-        let bid_lock = self.bids.read().unwrap();
-        let bid_keys: Vec<F64> = bid_lock
-            .iter()
-            .filter(|(_, xs)| xs.is_empty())
-            .map(|(p, _)| *p)
-            .collect();
-        drop(bid_lock);
-        let ask_lock = self.asks.read().unwrap();
-        let ask_keys: Vec<F64> = ask_lock
-            .iter()
-            .filter(|(_, xs)| xs.is_empty())
-            .map(|(p, _)| *p)
-            .collect();
-        drop(ask_lock);
+        for (&price, orders) in btree.iter_mut() {
+            if let Some(pos) =
+                orders.iter().position(|order| order.id() == order_id)
+            {
+                orders.remove(pos);
+                if orders.is_empty() {
+                    empty_keys.push(price);
+                }
+                break; // Exit early since IDs are unique.
+            }
+        }
 
-        bid_keys.iter().for_each(|p| {
-            self.bids.write().unwrap().remove(p);
-        });
-        ask_keys.iter().for_each(|p| {
-            self.asks.write().unwrap().remove(p);
-        });
+        // Remove empty VecDeques from the map.
+        for key in empty_keys {
+            btree.remove(&key);
+        }
     }
 
     fn remove_order(&mut self, order_id: OrderId) {
-        let bid_lock = self.bids.read().unwrap();
-        let bid_pos: Vec<(F64, usize)> = bid_lock
-            .iter()
-            .map(|(price, level)| {
-                (price, level.iter().position(|x| x.id() == order_id))
-            })
-            .filter(|(_, pos)| pos.is_some())
-            .map(|(price, pos)| (*price, pos.unwrap()))
-            .collect();
-        drop(bid_lock);
-        if let Some(bid) = bid_pos.first() {
-            self.bids
-                .write()
-                .unwrap()
-                .get_mut(&bid.0)
-                .unwrap()
-                .remove(bid.1);
-        }
-
-        let ask_lock = self.asks.read().unwrap();
-        let ask_pos: Vec<(&F64, usize)> = ask_lock
-            .iter()
-            .map(|(price, level)| {
-                (price, level.iter().position(|x| x.id() == order_id))
-            })
-            .filter(|(_, pos)| pos.is_some())
-            .map(|(price, pos)| (price, pos.unwrap()))
-            .collect();
-        if let Some(ask) = ask_pos.first() {
-            self.asks
-                .write()
-                .unwrap()
-                .get_mut(ask.0)
-                .unwrap()
-                .remove(ask.1);
-        }
+        Self::remove_order_from_side(&mut self.bids, order_id);
+        Self::remove_order_from_side(&mut self.asks, order_id);
     }
 }
 
@@ -395,8 +323,6 @@ where
 
     fn order(&self, id: OrderId) -> Option<T> {
         self.bids
-            .read()
-            .unwrap()
             .values()
             .find(|xs| xs.iter().any(|x| x.id() == id))
             .and_then(|xs| xs.iter().find(|x| x.id() == id))
@@ -407,25 +333,13 @@ where
         if !self.crosses(order.price(), order.kind()) {
             self.add_order(order.clone());
         } else {
-            match order.kind() {
-                OrderKind::Bid => {
-                    let asks = self.asks.clone();
-                    let mut lock = asks.write().unwrap();
-                    self.r#match(order, lock.iter_mut().rev());
-                }
-                OrderKind::Ask => {
-                    let bids = self.bids.clone();
-                    let mut lock = bids.write().unwrap();
-                    self.r#match(order, lock.iter_mut().rev());
-                }
-            };
-            self.prune();
+            self.r#match(order);
         }
     }
 
     fn cancel(&mut self, order_id: crate::order::OrderId) -> Option<T> {
         let order = self.order(order_id)?;
-        self.events.write().unwrap().push(Event {
+        self.events.push(Event {
             timestamp: Utc::now(),
             kind: EventKind::Cancel(order.clone()),
         });
@@ -434,17 +348,17 @@ where
     }
 
     fn ltp(&self) -> Option<Price> {
-        *self.ltp.read().unwrap()
+        self.ltp.map(|x| x.0)
     }
 
     fn depth(&self) -> (Quantity, Quantity) {
-        *self.depth.read().unwrap()
+        self.depth
     }
 
     fn top(&self) -> (Option<Price>, Option<Price>) {
         (
-            self.bids.read().unwrap().first_key_value().map(|x| x.0 .0),
-            self.asks.read().unwrap().first_key_value().map(|x| x.0 .0),
+            self.bids.first_key_value().map(|x| x.0 .0),
+            self.asks.first_key_value().map(|x| x.0 .0),
         )
     }
 
@@ -474,26 +388,6 @@ mod tests {
     }
 
     #[test]
-    fn test_new() {
-        let actual_book: BTreeBook<PlainOrder> =
-            BTreeBook::meta(mock_metadata());
-        let expected_book = BTreeBook {
-            metadata: mock_metadata(),
-            events: Arc::new(RwLock::new(vec![])),
-            bids: Arc::new(RwLock::new(BTreeMap::new())),
-            asks: Arc::new(RwLock::new(BTreeMap::new())),
-            ltp: Arc::new(RwLock::new(None)),
-            depth: Arc::new(RwLock::new((
-                Quantity::default(),
-                Quantity::default(),
-            ))),
-            removals: Arc::new(RwLock::new(vec![])),
-        };
-
-        assert_eq!(actual_book, expected_book);
-    }
-
-    #[test]
     fn test_submit_single_bid() {
         let timestamp = Utc::now();
 
@@ -511,18 +405,17 @@ mod tests {
         actual_book.add(order.clone());
         let expected_book = BTreeBook {
             metadata: mock_metadata(),
-            events: Arc::new(RwLock::new(vec![Event {
+            events: vec![Event {
                 timestamp,
                 kind: EventKind::Post(order.clone()),
-            }])),
-            bids: Arc::new(RwLock::new(BTreeMap::from_iter(vec![(
+            }],
+            bids: BTreeMap::from_iter(vec![(
                 F64(12.00),
                 VecDeque::from_iter(vec![order.clone()]),
-            )]))),
-            asks: Arc::new(RwLock::new(BTreeMap::new())),
-            ltp: Arc::new(RwLock::new(None)),
-            depth: Arc::new(RwLock::new((10, Quantity::default()))),
-            removals: Arc::new(RwLock::new(vec![])),
+            )]),
+            asks: BTreeMap::new(),
+            ltp: None,
+            depth: (10, Quantity::default()),
         };
 
         assert!(check_metadata(&actual_book, &expected_book));
@@ -551,18 +444,17 @@ mod tests {
         actual_book.add(order.clone());
         let expected_book = BTreeBook {
             metadata: mock_metadata(),
-            events: Arc::new(RwLock::new(vec![Event {
+            events: vec![Event {
                 timestamp,
                 kind: EventKind::Post(order.clone()),
-            }])),
-            bids: Arc::new(RwLock::new(BTreeMap::new())),
-            asks: Arc::new(RwLock::new(BTreeMap::from_iter(vec![(
+            }],
+            bids: BTreeMap::new(),
+            asks: BTreeMap::from_iter(vec![(
                 F64(12.00),
                 VecDeque::from_iter(vec![order.clone()]),
-            )]))),
-            ltp: Arc::new(RwLock::new(None)),
-            depth: Arc::new(RwLock::new((Quantity::default(), 10))),
-            removals: Arc::new(RwLock::new(vec![])),
+            )]),
+            ltp: None,
+            depth: (Quantity::default(), 10),
         };
 
         assert!(check_metadata(&actual_book, &expected_book));
@@ -605,7 +497,7 @@ mod tests {
         actual_book.add(ask.clone());
         let expected_book = BTreeBook {
             metadata: mock_metadata(),
-            events: Arc::new(RwLock::new(vec![
+            events: vec![
                 Event {
                     timestamp,
                     kind: EventKind::Post(bid.clone()),
@@ -617,15 +509,11 @@ mod tests {
                         others: vec![(ask.clone(), quantity)],
                     })),
                 },
-            ])),
-            bids: Arc::new(RwLock::new(BTreeMap::new())),
-            asks: Arc::new(RwLock::new(BTreeMap::new())),
-            ltp: Arc::new(RwLock::new(Some(price))),
-            depth: Arc::new(RwLock::new((
-                Quantity::default(),
-                Quantity::default(),
-            ))),
-            removals: Arc::new(RwLock::new(vec![])),
+            ],
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
+            ltp: (Some(F64(price))),
+            depth: (Quantity::default(), Quantity::default()),
         };
 
         assert!(check_metadata(&actual_book, &expected_book));
@@ -669,7 +557,7 @@ mod tests {
         actual_book.add(ask.clone());
         let expected_book = BTreeBook {
             metadata: mock_metadata(),
-            events: Arc::new(RwLock::new(vec![
+            events: vec![
                 Event {
                     timestamp,
                     kind: EventKind::Post(bid.clone()),
@@ -681,22 +569,18 @@ mod tests {
                         others: vec![(ask.clone(), ask_quantity)],
                     })),
                 },
-            ])),
-            bids: Arc::new(RwLock::new(BTreeMap::from_iter(vec![(
+            ],
+            bids: BTreeMap::from_iter(vec![(
                 F64(price),
                 VecDeque::from_iter(vec![{
                     let mut orig = bid.clone();
                     *orig.quantity_mut() = bid_quantity - ask_quantity;
                     orig
                 }]),
-            )]))),
-            asks: Arc::new(RwLock::new(BTreeMap::new())),
-            ltp: Arc::new(RwLock::new(Some(price))),
-            depth: Arc::new(RwLock::new((
-                bid_quantity - ask_quantity,
-                Quantity::default(),
-            ))),
-            removals: Arc::new(RwLock::new(vec![])),
+            )]),
+            asks: BTreeMap::new(),
+            ltp: Some(F64(price)),
+            depth: (bid_quantity - ask_quantity, Quantity::default()),
         };
 
         assert!(check_metadata(&actual_book, &expected_book));
@@ -750,7 +634,7 @@ mod tests {
         actual_book.add(bid2.clone());
         let expected_book = BTreeBook {
             metadata: mock_metadata(),
-            events: Arc::new(RwLock::new(vec![
+            events: vec![
                 Event {
                     timestamp,
                     kind: EventKind::Post(bid1.clone()),
@@ -766,8 +650,8 @@ mod tests {
                     timestamp,
                     kind: EventKind::Post(bid2.clone()),
                 },
-            ])),
-            bids: Arc::new(RwLock::new(BTreeMap::from_iter(vec![(
+            ],
+            bids: BTreeMap::from_iter(vec![(
                 F64(price),
                 VecDeque::from_iter(vec![
                     {
@@ -777,14 +661,13 @@ mod tests {
                     },
                     bid2.clone(),
                 ]),
-            )]))),
-            asks: Arc::new(RwLock::new(BTreeMap::new())),
-            ltp: Arc::new(RwLock::new(Some(price))),
-            depth: Arc::new(RwLock::new((
+            )]),
+            asks: BTreeMap::new(),
+            ltp: Some(F64(price)),
+            depth: (
                 bid_quantity - ask_quantity + bid_quantity,
                 Quantity::default(),
-            ))),
-            removals: Arc::new(RwLock::new(vec![])),
+            ),
         };
 
         assert!(check_metadata(&actual_book, &expected_book));
@@ -861,7 +744,7 @@ mod tests {
 
         let expected_book = BTreeBook {
             metadata: mock_metadata(),
-            events: Arc::new(RwLock::new(vec![
+            events: vec![
                 Event {
                     timestamp: Utc::now(),
                     kind: EventKind::Post(orders[0].clone()),
@@ -882,9 +765,9 @@ mod tests {
                     timestamp: Utc::now(),
                     kind: EventKind::Post(orders[4].clone()),
                 },
-            ])),
-            bids: Arc::new(RwLock::new(BTreeMap::new())),
-            asks: Arc::new(RwLock::new(BTreeMap::from_iter(vec![
+            ],
+            bids: BTreeMap::new(),
+            asks: BTreeMap::from_iter(vec![
                 (
                     F64(orders[3].price()),
                     VecDeque::from_iter(vec![orders[3].clone()]),
@@ -897,10 +780,9 @@ mod tests {
                     F64(orders[5].price()),
                     VecDeque::from_iter(vec![orders[5].clone()]),
                 ),
-            ]))),
-            ltp: Arc::new(RwLock::new(Some(10.00))),
-            depth: Arc::new(RwLock::new((0, 510))),
-            removals: Arc::new(RwLock::new(vec![])),
+            ]),
+            ltp: Some(F64(10.00)),
+            depth: (0, 510),
         };
 
         assert!(check_metadata(&actual_book, &expected_book));
@@ -917,15 +799,11 @@ mod tests {
         T: Order,
     {
         left.events
-            .read()
-            .unwrap()
             .iter()
             .map(|ev| ev.kind.clone())
             .collect::<Vec<EventKind<T>>>()
             == right
                 .events
-                .read()
-                .unwrap()
                 .iter()
                 .map(|ev| ev.kind.clone())
                 .collect::<Vec<EventKind<T>>>()
@@ -935,28 +813,28 @@ mod tests {
     where
         T: Order,
     {
-        *left.depth.read().unwrap() == *right.depth.read().unwrap()
+        left.depth == right.depth
     }
 
     fn check_ltp<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
     where
         T: Order,
     {
-        *left.ltp.read().unwrap() == *right.ltp.read().unwrap()
+        left.ltp == right.ltp
     }
 
     fn check_bids<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
     where
         T: Order,
     {
-        *left.bids.read().unwrap() == *right.bids.read().unwrap()
+        left.bids == right.bids
     }
 
     fn check_asks<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
     where
         T: Order,
     {
-        *left.asks.read().unwrap() == *right.asks.read().unwrap()
+        left.asks == right.asks
     }
 
     fn check_metadata<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool

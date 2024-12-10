@@ -19,6 +19,15 @@ pub enum OrderKind {
     Ask,
 }
 
+impl OrderKind {
+    pub fn opposite(&self) -> Self {
+        match self {
+            Self::Bid => Self::Ask,
+            Self::Ask => Self::Bid,
+        }
+    }
+}
+
 pub trait Order: Clone + Debug + Eq + PartialEq {
     fn id(&self) -> OrderId;
     fn kind(&self) -> OrderKind;
