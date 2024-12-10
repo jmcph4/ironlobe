@@ -238,7 +238,7 @@ where
                                     incumbent_quantity,
                                     order.kind(),
                                 );
-                                self.remove_order(incumbent.id());
+                                *incumbent.quantity_mut() = 0;
                             }
                             Ordering::Less => {
                                 self.events.push(Event::new(EventKind::Match(
@@ -256,7 +256,7 @@ where
                                     incumbent_quantity,
                                     order.kind(),
                                 );
-                                self.remove_order(incumbent.id());
+                                *incumbent.quantity_mut() = 0;
                             }
                         }
 
@@ -301,6 +301,38 @@ where
         Self::remove_order_from_side(&mut self.bids, order_id);
         Self::remove_order_from_side(&mut self.asks, order_id);
     }
+
+    fn prune(&mut self) {
+        let null_bids: Vec<OrderId> = self
+            .bids
+            .values_mut()
+            .map(|level| {
+                level
+                    .iter()
+                    .filter(|order| order.quantity() == 0)
+                    .cloned()
+                    .collect::<Vec<T>>()
+            })
+            .flatten()
+            .map(|order| order.id())
+            .collect();
+        let null_asks: Vec<OrderId> = self
+            .bids
+            .values_mut()
+            .map(|level| {
+                level
+                    .iter()
+                    .filter(|order| order.quantity() == 0)
+                    .cloned()
+                    .collect::<Vec<T>>()
+            })
+            .flatten()
+            .map(|order| order.id())
+            .collect();
+
+        null_bids.iter().for_each(|bid| self.remove_order(*bid));
+        null_asks.iter().for_each(|ask| self.remove_order(*ask));
+    }
 }
 
 impl<T> Book<T> for BTreeBook<T>
@@ -334,6 +366,7 @@ where
             self.add_order(order.clone());
         } else {
             self.r#match(order);
+            self.prune();
         }
     }
 
