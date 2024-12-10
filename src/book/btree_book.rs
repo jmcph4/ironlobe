@@ -317,7 +317,7 @@ where
             .map(|order| order.id())
             .collect();
         let null_asks: Vec<OrderId> = self
-            .bids
+            .asks
             .values_mut()
             .map(|level| {
                 level
