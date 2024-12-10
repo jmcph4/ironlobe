@@ -795,6 +795,122 @@ mod tests {
         assert!(check_event_logs(&actual_book, &expected_book));
     }
 
+    #[test]
+    fn test_submit_deep_cross() {
+        let orders: Vec<PlainOrder> = vec![
+            PlainOrder {
+                id: 1,
+                kind: OrderKind::Bid,
+                price: 10.00,
+                quantity: 120,
+                created: Utc::now(),
+                modified: Utc::now(),
+                cancelled: None,
+            },
+            PlainOrder {
+                id: 2,
+                kind: OrderKind::Bid,
+                price: 10.00,
+                quantity: 300,
+                created: Utc::now(),
+                modified: Utc::now(),
+                cancelled: None,
+            },
+            PlainOrder {
+                id: 3,
+                kind: OrderKind::Bid,
+                price: 15.00,
+                quantity: 300,
+                created: Utc::now(),
+                modified: Utc::now(),
+                cancelled: None,
+            },
+            PlainOrder {
+                id: 4,
+                kind: OrderKind::Ask,
+                price: 16.00,
+                quantity: 100,
+                created: Utc::now(),
+                modified: Utc::now(),
+                cancelled: None,
+            },
+            PlainOrder {
+                id: 5,
+                kind: OrderKind::Ask,
+                price: 20.50,
+                quantity: 230,
+                created: Utc::now(),
+                modified: Utc::now(),
+                cancelled: None,
+            },
+            PlainOrder {
+                id: 6,
+                kind: OrderKind::Ask,
+                price: 3.50,
+                quantity: 1000,
+                created: Utc::now(),
+                modified: Utc::now(),
+                cancelled: None,
+            },
+        ];
+
+        let mut actual_book: BTreeBook<PlainOrder> =
+            BTreeBook::meta(mock_metadata());
+
+        orders.iter().for_each(|x| actual_book.add(x.clone()));
+
+        let expected_book = BTreeBook {
+            metadata: mock_metadata(),
+            events: Arc::new(RwLock::new(vec![
+                Event {
+                    timestamp: Utc::now(),
+                    kind: EventKind::Post(orders[0].clone()),
+                },
+                Event {
+                    timestamp: Utc::now(),
+                    kind: EventKind::Post(orders[1].clone()),
+                },
+                Event {
+                    timestamp: Utc::now(),
+                    kind: EventKind::Post(orders[2].clone()),
+                },
+                Event {
+                    timestamp: Utc::now(),
+                    kind: EventKind::Post(orders[3].clone()),
+                },
+                Event {
+                    timestamp: Utc::now(),
+                    kind: EventKind::Post(orders[4].clone()),
+                },
+            ])),
+            bids: Arc::new(RwLock::new(BTreeMap::new())),
+            asks: Arc::new(RwLock::new(BTreeMap::from_iter(vec![
+                (
+                    F64(orders[3].price()),
+                    VecDeque::from_iter(vec![orders[3].clone()]),
+                ),
+                (
+                    F64(orders[4].price()),
+                    VecDeque::from_iter(vec![orders[4].clone()]),
+                ),
+                (
+                    F64(orders[5].price()),
+                    VecDeque::from_iter(vec![orders[5].clone()]),
+                ),
+            ]))),
+            ltp: Arc::new(RwLock::new(Some(10.00))),
+            depth: Arc::new(RwLock::new((0, 510))),
+            removals: Arc::new(RwLock::new(vec![])),
+        };
+
+        assert!(check_metadata(&actual_book, &expected_book));
+        assert!(check_bids(&actual_book, &expected_book));
+        assert!(check_asks(&actual_book, &expected_book));
+        assert!(check_ltp(&actual_book, &expected_book));
+        assert!(check_depth(&actual_book, &expected_book));
+        assert!(check_event_logs(&actual_book, &expected_book));
+    }
+
     /// ∀(l,r)∈(⟨left⟩,⟨right⟩),kind(l)==kind(r).
     fn check_event_logs<T>(left: &BTreeBook<T>, right: &BTreeBook<T>) -> bool
     where
