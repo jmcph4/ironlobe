@@ -187,8 +187,8 @@ where
         let opposing_kind = order.kind().opposite();
         let opposing_side: Box<dyn Iterator<Item = (&F64, &mut VecDeque<T>)>> =
             match opposing_kind {
-                OrderKind::Bid => Box::new(self.bids.iter_mut()),
-                OrderKind::Ask => Box::new(self.asks.iter_mut().rev()),
+                OrderKind::Bid => Box::new(self.bids.iter_mut().rev()),
+                OrderKind::Ask => Box::new(self.asks.iter_mut()),
             };
 
         let mut ltp = order.price();
