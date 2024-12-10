@@ -198,7 +198,10 @@ where
             if quantity_remaining == 0 {
                 break;
             }
-            if *level <= F64(order.price()) {
+            if (order.kind() == OrderKind::Bid && *level <= F64(order.price()))
+                || (order.kind() == OrderKind::Ask
+                    && *level >= F64(order.price()))
+            {
                 while let Some(incumbent) = orders.iter_mut().next() {
                     if quantity_remaining > 0 {
                         let incumbent_quantity = incumbent.quantity();
