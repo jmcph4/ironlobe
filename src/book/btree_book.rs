@@ -203,6 +203,10 @@ where
                     && *level >= F64(order.price()))
             {
                 while let Some(incumbent) = orders.iter_mut().next() {
+                    if incumbent.quantity() == 0 {
+                        break;
+                    }
+
                     if quantity_remaining > 0 {
                         let incumbent_quantity = incumbent.quantity();
 
